@@ -1,0 +1,214 @@
+// Esquema de base de datos — Turnos RB Estética
+// Postgres (Neon). Ver README.md para instrucciones de deploy.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model AdminUser {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  passwordSalt String
+  name         String
+  createdAt    DateTime @default(now())
+}
+
+model Service {
+  id            String   @id @default(cuid())
+  name          String
+  category      String // facial | corporal | depilacion | cejas | otro
+  price         Int // precio de sesión, en pesos
+  packPrice     Int?
+  packSessions  Int?
+  duration      Int // duración por defecto, en minutos
+  description   String?
+  // días de la semana en que se ofrece este servicio: 0=domingo ... 6=sábado
+  availableDays Int[]
+  startMin      Int // apertura, minutos desde medianoche (ej. 14:00 = 840)
+  endMin        Int // cierre, minutos desde medianoche
+  // Instrucciones de preparación que el bot de WhatsApp manda como recordatorio
+  // antes del turno (ej. "venir rasurada", "sin sol 48hs antes"). Null/vacío = sin
+  // preparación especial, el bot no manda nada raro para ese servicio.
+  prepInstructions String?
+  // Monto de seña que pide el bot de WhatsApp para este servicio. Null = usa
+  // el monto por defecto (DEPOSIT.amount en src/lib/business.ts).
+  depositAmount Int?
+  active        Boolean       @default(true)
+  createdAt     DateTime      @default(now())
+  appointments  Appointment[]
+  // Horario personalizado por día (ej. lunes solo mañana, martes solo tarde).
+  // Si un servicio tiene filas acá, tienen prioridad sobre availableDays/
+  // startMin/endMin de arriba (que se siguen completando automáticamente, como
+  // resumen general, por compatibilidad con pantallas viejas). Funciona como
+  // PLANTILLA: qué días de la semana atiende este servicio y con qué horario
+  // por defecto — no implica que atienda TODAS las fechas de esos días (ver
+  // requiresDateConfirmation).
+  dayHours      ServiceDayHours[]
+  // Si es true, este servicio no atiende automáticamente todas las semanas
+  // los días de su horario habitual (dayHours) — hace falta que Romina
+  // confirme fecha por fecha desde la Agenda del servicio (ej. Depilación:
+  // trabaja viernes y sábados, pero no todos, así que cada viernes/sábado
+  // tiene que estar confirmado en ServiceOpenDate para poder reservarse).
+  requiresDateConfirmation Boolean @default(false)
+  openDates     ServiceOpenDate[]
+}
+
+// Fecha puntual confirmada por Romina en la Agenda de un servicio que tiene
+// requiresDateConfirmation=true. Si existe una fila para un servicio+fecha,
+// ese día está disponible para reservar con el horario de esta fila (que por
+// defecto viene precargado del horario semanal — dayHours — pero se puede
+// ajustar para ese día puntual). Si NO existe fila, esa fecha NO está
+// disponible aunque el día de la semana esté en dayHours.
+model ServiceOpenDate {
+  id        String   @id @default(cuid())
+  serviceId String
+  service   Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  date      DateTime // medianoche UTC, solo importa la parte de fecha
+  startMin  Int
+  endMin    Int
+  createdAt DateTime @default(now())
+
+  @@unique([serviceId, date])
+}
+
+// Horario de un servicio en un día puntual de la semana. Reemplaza, servicio
+// por servicio, al horario único (Service.startMin/endMin) para permitir que
+// un mismo tratamiento atienda, por ejemplo, lunes a la mañana y martes a la
+// tarde. Una fila por día configurado — si un día no tiene fila, ese servicio
+// no atiende ese día (salvo excepción puntual vía DateOverride).
+model ServiceDayHours {
+  id        String  @id @default(cuid())
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  dayOfWeek Int // 0=domingo ... 6=sábado
+  startMin  Int
+  endMin    Int
+
+  @@unique([serviceId, dayOfWeek])
+}
+
+model DateOverride {
+  id        String   @id @default(cuid())
+  date      DateTime @unique // fecha (guardada a medianoche UTC, solo importa la parte de fecha)
+  type      String // "closed" (cierra todo el día) | "open" (abre una ventana extra para todos los servicios)
+  startMin  Int?
+  endMin    Int?
+  reason    String?
+  createdAt DateTime @default(now())
+}
+
+model BusinessBreak {
+  id         String   @id @default(cuid())
+  label      String?
+  daysOfWeek Int[]    // vacío = todos los días. 0=domingo ... 6=sábado
+  startMin   Int
+  endMin     Int
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+}
+
+model Client {
+  id            String        @id @default(cuid())
+  name          String
+  phone         String        @unique // normalizado: solo dígitos, sin código de país (ver src/lib/phone.ts)
+  email         String?
+  birthDate     DateTime?
+  notes         String?
+  lastDiagnosis String? // último diagnóstico / observación general de la clienta
+  source        String        @default("online") // online | manual | tuturno (importado) | whatsapp_bot
+  createdAt     DateTime      @default(now())
+  appointments  Appointment[]
+}
+
+model Appointment {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id])
+  serviceId String
+  service   Service  @relation(fields: [serviceId], references: [id])
+  date      DateTime // fecha del turno (medianoche UTC, solo la parte de fecha importa)
+  startMin  Int // hora de inicio, minutos desde medianoche
+  endMin    Int // hora de fin — independiente de service.duration, se puede ajustar por turno
+  status    String   @default("confirmado") // confirmado | cancelado | atendido | ausente
+  paymentMethod String? // efectivo | tarjeta | transferencia | descuento (se carga cuando se marca "atendido")
+  notes     String? // notas de la clienta al reservar
+  diagnosis String? // diagnóstico / tratamiento realizado en ESTA sesión (para seguimiento)
+  source    String   @default("online") // online | manual | whatsapp_bot
+
+  // --- Seña (bot de WhatsApp) ---
+  // no_requerido: turno cargado manualmente o por la web, sin flujo de seña.
+  // pendiente: reservado por el bot, esperando que mande el comprobante.
+  // pagado: el comprobante fue validado (por IA) y coincide con monto/alias esperado.
+  // rechazado: el comprobante no coincidió — queda para revisión manual de Romina/Pablo.
+  depositStatus     String    @default("no_requerido")
+  depositAmount     Int? // monto de seña pedido en este turno (por si cambia con el tiempo)
+  depositReceiptUrl String? // imagen del comprobante que mandó la clienta (guardada en blob storage)
+  depositConfirmedAt DateTime?
+
+  // --- Recordatorios (bot de WhatsApp) ---
+  reminder48SentAt    DateTime? // recordatorio largo (preparación) ya enviado
+  reminderShortSentAt DateTime? // recordatorio corto (mismo día) ya enviado
+
+  payments  Payment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([date])
+  @@index([clientId])
+}
+
+// Registro de pagos ("caja") de un turno — tanto los que carga Romina a mano
+// desde el panel (modal "Método de pago": resto del servicio, efectivo en el
+// local, etc.) como los que registra el bot automáticamente al confirmar la
+// seña por WhatsApp (source="bot"). Un turno puede tener más de un pago
+// (ej. seña por transferencia + resto en efectivo el día del turno).
+model Payment {
+  id            String       @id @default(cuid())
+  appointmentId String
+  appointment   Appointment  @relation(fields: [appointmentId], references: [id])
+  amount        Int
+  method        String // efectivo | tarjeta | transferencia | descuento
+  source        String       @default("manual") // manual (cargado por Romina) | bot (seña confirmada por IA)
+  note          String?
+  createdAt     DateTime     @default(now())
+
+  @@index([appointmentId])
+}
+
+// Configuración general del negocio editable desde el panel (una sola fila).
+// Hoy solo guarda los términos y condiciones de la seña, que se le muestran a
+// la clienta cuando el bot le pide la seña para confirmar el turno.
+model BusinessSettings {
+  id                  String  @id @default("singleton")
+  depositTerms        String? // términos y condiciones de la seña
+  updatedAt           DateTime @updatedAt
+}
+
+// Estado de una conversación de WhatsApp en curso con una clienta (una fila por
+// número de teléfono). Guarda en qué paso del flujo de reserva está y los datos
+// que ya juntó (servicio elegido, fecha, horario, etc.) mientras completa la
+// reserva a los mensajes. Se limpia (step vuelve a "inicio") al terminar o cancelar.
+model BotConversation {
+  id        String   @id @default(cuid())
+  phone     String   @unique // normalizado, igual formato que Client.phone
+  step      String   @default("inicio")
+  data      Json? // payload libre del paso actual (serviceId, dateKey, startMin, etc.)
+  appointmentId String? // turno en curso al que este chat le está por confirmar la seña
+  // Pedido de Romina (02/09/2026): cuando ella le contesta a una clienta a mano
+  // desde la app de WhatsApp Business (mismo número que el bot, modo
+  // "coexistencia"), el bot tiene que dejar de responderle en esa conversación.
+  // Acá se guarda la fecha/hora del último mensaje manual de Romina detectado
+  // por el webhook de "smb_message_echoes"; mientras esté reciente (ver
+  // HUMAN_TAKEOVER_HOURS en src/lib/bot/flow.ts), el bot no contesta nada.
+  humanTakeoverAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
