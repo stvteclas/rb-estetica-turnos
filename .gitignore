@@ -8,3 +8,13 @@ node_modules
 
 .vercel
 .env*
+
+# Contiene un token real de Vercel en texto plano — nunca debe versionarse.
+deploy.ps1
+add-alias.ps1
+
+# Datos personales reales de clientas (nombre, teléfono) importados de tuturno.io.
+data/tuturno-historial.json
+
+# Configuración local del IDE (IntelliJ).
+.idea/
