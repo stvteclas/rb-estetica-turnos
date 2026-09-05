@@ -3,7 +3,7 @@ import { requireAdminPage } from "@/lib/auth-guard";
 import { addOverride, removeOverride, addBreak, removeBreak } from "@/lib/actions/admin";
 import BreakForm from "@/components/admin/BreakForm";
 import OverrideForm from "@/components/admin/OverrideForm";
-import { dateToKey, formatDateHuman, minutesToTime, keyToDate } from "@/lib/format";
+import { dateToKey, formatDateHuman, minutesToTime, keyToDate, todayKeyART } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +13,7 @@ export default async function HorariosPage() {
   requireAdminPage();
 
   const overrides = await prisma.dateOverride.findMany({
-    where: { date: { gte: keyToDate(dateToKey(new Date())) } },
+    where: { date: { gte: keyToDate(todayKeyART()) } },
     orderBy: { date: "asc" },
   });
 

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { requireAdminPage } from "@/lib/auth-guard";
-import { dateToKey, formatDateHuman, keyToDate, minutesToTime } from "@/lib/format";
+import { dateToKey, formatDateHuman, keyToDate, minutesToTime, todayKeyART } from "@/lib/format";
 import { getWindowForDate, getAvailableSlots, toBusyIntervals, breaksForDate } from "@/lib/slots";
 import AppointmentCard from "@/components/admin/AppointmentCard";
 import DateStrip from "@/components/admin/DateStrip";
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 export default async function TurnosPage({ searchParams }: { searchParams: { date?: string } }) {
   requireAdminPage();
 
-  const todayKey = dateToKey(new Date());
+  const todayKey = todayKeyART();
   const selectedKey = searchParams.date || todayKey;
   const selectedDate = keyToDate(selectedKey);
 

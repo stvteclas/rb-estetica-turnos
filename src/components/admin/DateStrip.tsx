@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { dateToKey, keyToDate } from "@/lib/format";
+import { dateToKey, keyToDate, todayKeyART } from "@/lib/format";
 
 const DIAS_CORTO = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
 const MESES_CORTO = [
@@ -21,7 +21,7 @@ export default function DateStrip({
   countByDate: Record<string, number>;
   basePath: string;
 }) {
-  const todayKey = dateToKey(new Date());
+  const todayKey = todayKeyART();
   const days: string[] = [];
   for (let i = -2; i <= 2; i++) days.push(shiftKey(selectedKey, i));
 

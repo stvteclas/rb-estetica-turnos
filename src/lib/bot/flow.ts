@@ -8,7 +8,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { normalizePhone } from "@/lib/phone";
-import { dateToKey, formatDateHuman, formatMoney, minutesToTime } from "@/lib/format";
+import { dateToKey, formatDateHuman, formatMoney, minutesToTime, nowART } from "@/lib/format";
 import { getAvailability, createBooking } from "@/lib/actions/public";
 import { DEPOSIT, BUSINESS } from "@/lib/business";
 import {
@@ -99,7 +99,7 @@ async function sendServiceMenu(phone: string) {
 }
 
 async function sendDateOptions(phone: string, serviceId: string, serviceName: string) {
-  const today = new Date();
+  const today = nowART();
   const dateKeys: string[] = [];
   for (let i = 0; i < MAX_DAYS_AHEAD; i++) {
     const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + i));

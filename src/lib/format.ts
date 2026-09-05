@@ -22,6 +22,23 @@ export function keyToDate(key: string): Date {
   return new Date(`${key}T00:00:00.000Z`);
 }
 
+// El servidor (Vercel) corre en UTC, pero el negocio es en Argentina
+// (UTC-3 fijo, sin horario de verano). Cerca de la medianoche UTC (21:00 a
+// 23:59 hora Argentina) "new Date()" solo ya cae del lado del día siguiente
+// para Argentina — bug reportado por Pablo el 04/09/2026 (disponibilidad de
+// horarios, corregido puntualmente en slots.ts) y de nuevo el 05/09/2026
+// ("Turnos de hoy" mostraba el sábado siendo todavía viernes a la noche).
+// Usar SIEMPRE nowART()/todayKeyART() en vez de "new Date()" cuando se
+// necesita el instante o el día calendario de Argentina (ver
+// turnos-app-fixes-pendientes.md, punto 23).
+export function nowART(): Date {
+  return new Date(Date.now() - 3 * 60 * 60_000);
+}
+
+export function todayKeyART(): string {
+  return dateToKey(nowART());
+}
+
 const DIAS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 const MESES = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",

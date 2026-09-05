@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { getAvailableSlots, getWindowForDate, toBusyIntervals, breaksForDate } from "@/lib/slots";
-import { keyToDate, dateToKey, formatDateHuman, minutesToTime as toTime } from "@/lib/format";
+import { keyToDate, dateToKey, formatDateHuman, minutesToTime as toTime, nowART } from "@/lib/format";
 import { normalizePhone } from "@/lib/phone";
 import { sendAppointmentConfirmationEmail } from "@/lib/email";
 import { sendWhatsAppTemplate, notifyOwner } from "@/lib/whatsapp";
@@ -49,7 +49,7 @@ export async function getAvailability(serviceId: string, dateKey: string) {
  * que ya usa el bot de WhatsApp (src/lib/bot/flow.ts, sendDateOptions). */
 export async function getAvailableDateKeys(serviceId: string, daysAhead: number = 70): Promise<string[]> {
   const dateKeys: string[] = [];
-  const today = new Date();
+  const today = nowART();
   for (let i = 0; i < daysAhead; i++) {
     const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + i));
     dateKeys.push(dateToKey(d));

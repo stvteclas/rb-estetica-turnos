@@ -57,8 +57,17 @@ export function getAvailableSlots(params: {
   now?: Date;
 }): number[] {
   const { window, duration, busy, date, now = new Date() } = params;
-  const isToday = dateToKey(date) === dateToKey(now);
-  const nowMin = now.getUTCHours() * 60 + now.getUTCMinutes();
+  // `now` es un instante real en UTC (ej. Date.now() en el servidor de
+  // Vercel, que corre en UTC), pero `date` y los minutos de la ventana
+  // (startMin/endMin) están en horario LOCAL de Argentina (UTC-3 fijo, sin
+  // horario de verano — mismo criterio que appointmentDateTimeUTC en
+  // format.ts). Hay que correr `now` 3hs para comparar manzanas con
+  // manzanas: si no, a las 09:00 ART (12:00 UTC) el código creía que ya eran
+  // las 12:00 y descartaba como "pasados" todos los turnos entre las 09:00 y
+  // las 12:00 ART, aunque en realidad todavía no habían llegado.
+  const nowArt = new Date(now.getTime() - 3 * 60 * 60_000);
+  const isToday = dateToKey(date) === dateToKey(nowArt);
+  const nowMin = nowArt.getUTCHours() * 60 + nowArt.getUTCMinutes();
 
   // Unimos y ordenamos los intervalos ocupados (turnos + pausas) para calcular
   // los huecos libres reales dentro de la ventana, en vez de probar una grilla

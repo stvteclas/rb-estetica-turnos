@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireAdminPage } from "@/lib/auth-guard";
 import { updateServiceAgenda } from "@/lib/actions/admin";
-import { dateToKey, formatDateHuman, keyToDate } from "@/lib/format";
+import { dateToKey, formatDateHuman, keyToDate, todayKeyART } from "@/lib/format";
 import AgendaForm, { AgendaDateVM } from "@/components/admin/AgendaForm";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +32,7 @@ export default async function ServiceAgendaPage({ params }: { params: { id: stri
 
   const dates: AgendaDateVM[] = [];
   if (weekdayDefaults.size > 0) {
-    const today = keyToDate(dateToKey(new Date()));
+    const today = keyToDate(todayKeyART());
     for (let i = 0; i < WEEKS_AHEAD * 7; i++) {
       const d = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate() + i));
       const weekday = d.getUTCDay();

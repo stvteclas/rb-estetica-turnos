@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { requireAdminPage } from "@/lib/auth-guard";
-import { dateToKey, formatDateHuman, keyToDate } from "@/lib/format";
+import { dateToKey, formatDateHuman, keyToDate, todayKeyART } from "@/lib/format";
 import AppointmentCard from "@/components/admin/AppointmentCard";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export default async function AdminDashboard() {
   requireAdminPage();
 
-  const todayKey = dateToKey(new Date());
+  const todayKey = todayKeyART();
   const today = keyToDate(todayKey);
 
   const [appointments, services] = await Promise.all([

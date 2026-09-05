@@ -18,7 +18,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { appointmentDateTimeUTC, dateToKey, formatDateHuman, minutesToTime } from "@/lib/format";
+import { appointmentDateTimeUTC, dateToKey, formatDateHuman, minutesToTime, nowART } from "@/lib/format";
 import { sendWhatsAppTemplate, notifyOwner } from "@/lib/whatsapp";
 import { toWhatsAppNumber } from "@/lib/phone";
 import { sendReminder48 } from "@/lib/reminders";
@@ -43,9 +43,15 @@ export async function GET(req: NextRequest) {
   }
 
   const now = Date.now();
-  const today = dateToKey(new Date());
-  const in2Days = dateToKey(new Date(Date.now() + 2 * 24 * 60 * 60 * 1000));
-  const in3Days = dateToKey(new Date(Date.now() + 3 * 24 * 60 * 60 * 1000));
+  // Usamos nowART (hora de Argentina) como base de "hoy", no new Date() en
+  // UTC directo — mismo bug de zona horaria que en slots.ts (punto 19) y en
+  // "Turnos de hoy"/otros lugares (punto 23): si este cron alguna vez vuelve
+  // a correr cerca de la medianoche UTC (21-24hs ART), new Date() ya cae en
+  // el día siguiente para Argentina.
+  const nowArt = nowART();
+  const today = dateToKey(nowArt);
+  const in2Days = dateToKey(new Date(nowArt.getTime() + 2 * 24 * 60 * 60 * 1000));
+  const in3Days = dateToKey(new Date(nowArt.getTime() + 3 * 24 * 60 * 60 * 1000));
 
   const appointments = await prisma.appointment.findMany({
     where: {
@@ -114,12 +120,12 @@ export async function GET(req: NextRequest) {
 
       const when = `${formatDateHuman(dateToKey(appt.date))} a las ${minutesToTime(appt.startMin)}`;
       try {
-        // Puede fallar si la plantilla "sena_vencida_rb" todavía no está dada
+        // Puede fallar si la plantilla "sena_vencida_utilidad_rb" todavía no está dada
         // de alta/aprobada en Meta — no rompe la cancelación en sí, que ya
         // quedó guardada arriba.
         await sendWhatsAppTemplate({
           to: toWhatsAppNumber(appt.client.phone),
-          templateName: "sena_vencida_rb",
+          templateName: "sena_vencida_utilidad_rb",
           bodyParams: [appt.client.name, appt.service.name, when],
         });
       } catch (e) {

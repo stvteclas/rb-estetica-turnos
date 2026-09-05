@@ -277,14 +277,15 @@ export async function createManualAppointment(formData: FormData) {
   const serviceId = String(formData.get("serviceId") || "");
   const dateKey = String(formData.get("date") || "");
   const startMin = timeToMinutes(String(formData.get("startTime") || "09:00"));
-  const durationOverride = formData.get("duration") ? Number(formData.get("duration")) : null;
   const phone = normalizePhone(String(formData.get("phone") || ""));
   const name = String(formData.get("name") || "").trim();
   const email = String(formData.get("email") || "").trim() || null;
 
   const service = await prisma.service.findUnique({ where: { id: serviceId } });
   if (!service) throw new Error("Servicio inválido.");
-  const duration = durationOverride || service.duration;
+  // Pedido de Pablo (05/09/2026): la duración no es configurable acá, siempre
+  // usa la del servicio — se sacó el override manual del formulario.
+  const duration = service.duration;
 
   const client = await prisma.client.upsert({
     where: { phone },
@@ -369,7 +370,6 @@ export async function createAppointmentForClient(clientId: string, formData: For
   const serviceId = String(formData.get("serviceId") || "");
   const dateKey = String(formData.get("date") || "");
   const startMin = timeToMinutes(String(formData.get("startTime") || "09:00"));
-  const durationOverride = formData.get("duration") ? Number(formData.get("duration")) : null;
 
   const [service, client] = await Promise.all([
     prisma.service.findUnique({ where: { id: serviceId } }),
@@ -377,7 +377,9 @@ export async function createAppointmentForClient(clientId: string, formData: For
   ]);
   if (!service) throw new Error("Servicio inválido.");
   if (!client) throw new Error("Clienta inválida.");
-  const duration = durationOverride || service.duration;
+  // Pedido de Pablo (05/09/2026): la duración no es configurable acá, siempre
+  // usa la del servicio — se sacó el override manual del formulario.
+  const duration = service.duration;
 
   await prisma.appointment.create({
     data: {
