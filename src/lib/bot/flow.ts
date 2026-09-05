@@ -159,45 +159,149 @@ async function askName(phone: string) {
 }
 
 async function finalizeBooking(phone: string, name: string, data: any) {
-  const result = await createBooking({
-    serviceId: data.serviceId,
-    dateKey: data.dateKey,
-    startMin: Number(data.startMin),
-    name,
-    phone,
-    notes: "Reservado por WhatsApp (bot).",
-    source: "whatsapp_bot",
-  });
+  try {
+    const result = await createBooking({
+      serviceId: data.serviceId,
+      dateKey: data.dateKey,
+      startMin: Number(data.startMin),
+      name,
+      phone,
+      notes: "Reservado por WhatsApp (bot).",
+      source: "whatsapp_bot",
+    });
 
-  if (!result.ok) {
-    await sendWhatsAppText(phone, `${result.error} Volvamos a intentar — elegí el servicio de nuevo:`);
-    await sendServiceMenu(phone);
-    await setStep(phone, "esperando_servicio", {});
+    if (!result.ok) {
+      await sendWhatsAppText(phone, `${result.error} Volvamos a intentar — elegí el servicio de nuevo:`);
+      await sendServiceMenu(phone);
+      await setStep(phone, "esperando_servicio", {});
+      return;
+    }
+
+    const service = await prisma.service.findUnique({ where: { id: data.serviceId } });
+    const depositAmount = service?.depositAmount ?? DEPOSIT.amount;
+
+    await prisma.appointment.update({
+      where: { id: result.appointmentId },
+      data: { depositStatus: "pendiente", depositAmount },
+    });
+
+    const serviceName = data.serviceName;
+    const when = `${formatDateHuman(data.dateKey)} a las ${minutesToTime(Number(data.startMin))}`;
+
+    const settings = await prisma.businessSettings.findUnique({ where: { id: "singleton" } });
+    const termsBlock = settings?.depositTerms ? `\n\n📌 *Términos y condiciones de la seña:*\n${settings.depositTerms}` : "";
+
+    await sendWhatsAppText(
+      phone,
+      `¡Listo! Turno reservado ✅\n\n*${serviceName}*\n${when}\n\nPara confirmarlo necesitamos una seña de *${formatMoney(depositAmount)}*.\n\nAlias: *${DEPOSIT.alias}*\n\nApenas transfieras, mandanos la *foto del comprobante* acá mismo y confirmamos el turno al toque.${termsBlock}`
+    );
+
+    await notifyOwner(`📅 Nuevo turno (bot WhatsApp): ${name} · ${serviceName} · ${when} · tel ${phone}. Queda pendiente de seña.`);
+
+    await setStep(phone, "esperando_comprobante", { ...data, depositAmount }, result.appointmentId);
+  } catch (e) {
+    // Blindaje (05/09/2026, punto 24): antes, cualquier error acá (por ejemplo
+    // un startMin corrupto, ver el fix de "esperando_horario" arriba) dejaba
+    // a la clienta sin ninguna respuesta y la conversación pegada para
+    // siempre en el mismo paso. Ahora se loguea, se avisa a Romina/Pablo por
+    // WhatsApp (no depender de los logs de Vercel, que se borran a la media
+    // hora en el plan Hobby), se le pide disculpas a la clienta y se
+    // reinicia la conversación para que un "hola" la saque del pozo.
+    console.error("Error en finalizeBooking (bot WhatsApp):", e);
+    await notifyOwner(
+      `⚠️ El bot tuvo un error armando el turno de ${name} (tel ${phone}) y no pudo responderle. Revisar a mano. Error: ${e instanceof Error ? e.message : String(e)}`
+    );
+    await sendWhatsAppText(
+      phone,
+      "Uy, tuvimos un problema técnico armando tu turno 😕 Probá de nuevo escribiendo *hola*, o escribinos directo y te ayudamos a mano."
+    );
+    await resetConversation(phone);
+  }
+}
+
+/**
+ * Procesa una foto/PDF de comprobante contra UN turno puntual (lo busca
+ * fresco en la base, no depende de los datos que haya guardados en la
+ * conversación) — la usan tanto el paso normal "esperando_comprobante" como
+ * el blindaje de más abajo (comprobante que llega en cualquier otro paso).
+ */
+async function processReceiptForAppointment(phone: string, msg: IncomingMessage, appointmentId: string) {
+  const appointment = await prisma.appointment.findUnique({
+    where: { id: appointmentId },
+    include: { service: true },
+  });
+  if (!appointment || !msg.imageMediaId) {
+    await resetConversation(phone);
+    await sendWhatsAppText(phone, "Se nos perdió el turno en curso, empecemos de nuevo. Escribí *hola*.");
     return;
   }
 
-  const service = await prisma.service.findUnique({ where: { id: data.serviceId } });
-  const depositAmount = service?.depositAmount ?? DEPOSIT.amount;
+  const { buffer, mimeType } = await downloadWhatsAppMedia(msg.imageMediaId);
+  let receiptUrl: string | null = null;
+  try {
+    const { put } = await import("@vercel/blob");
+    const ext = mimeType === "application/pdf" ? "pdf" : mimeType.split("/")[1] || "jpg";
+    const blob = await put(`comprobantes/${appointmentId}-${Date.now()}.${ext}`, buffer, {
+      access: "public",
+      contentType: mimeType,
+    });
+    receiptUrl = blob.url;
+  } catch (e) {
+    console.error("No se pudo guardar el comprobante en Blob storage:", e);
+  }
 
-  await prisma.appointment.update({
-    where: { id: result.appointmentId },
-    data: { depositStatus: "pendiente", depositAmount },
+  const expectedAmount = appointment.depositAmount ?? DEPOSIT.amount;
+  const check = await verifyDepositReceipt({
+    imageBuffer: buffer,
+    mimeType,
+    expectedAmount,
+    expectedAlias: DEPOSIT.alias,
+    expectedAccountHolder: DEPOSIT.accountHolder,
   });
 
-  const serviceName = data.serviceName;
-  const when = `${formatDateHuman(data.dateKey)} a las ${minutesToTime(Number(data.startMin))}`;
+  const serviceName = appointment.service.name;
+  const when = `${formatDateHuman(dateToKey(appointment.date))} a las ${minutesToTime(appointment.startMin)}`;
 
-  const settings = await prisma.businessSettings.findUnique({ where: { id: "singleton" } });
-  const termsBlock = settings?.depositTerms ? `\n\n📌 *Términos y condiciones de la seña:*\n${settings.depositTerms}` : "";
+  if (check.matches) {
+    await prisma.appointment.update({
+      where: { id: appointmentId },
+      data: { depositStatus: "pagado", depositConfirmedAt: new Date(), depositReceiptUrl: receiptUrl },
+    });
 
-  await sendWhatsAppText(
-    phone,
-    `¡Listo! Turno reservado ✅\n\n*${serviceName}*\n${when}\n\nPara confirmarlo necesitamos una seña de *${formatMoney(depositAmount)}*.\n\nAlias: *${DEPOSIT.alias}*\n\nApenas transfieras, mandanos la *foto del comprobante* acá mismo y confirmamos el turno al toque.${termsBlock}`
-  );
+    // Registramos la seña en la misma cuenta/caja que usa Romina desde el
+    // panel (modal "Método de pago"), para que quede todo en un solo lugar.
+    await prisma.payment.create({
+      data: {
+        appointmentId,
+        amount: expectedAmount,
+        method: "transferencia",
+        source: "bot",
+        note: "Seña confirmada automáticamente por el bot de WhatsApp.",
+      },
+    });
 
-  await notifyOwner(`📅 Nuevo turno (bot WhatsApp): ${name} · ${serviceName} · ${when} · tel ${phone}. Queda pendiente de seña.`);
-
-  await setStep(phone, "esperando_comprobante", { ...data, depositAmount }, result.appointmentId);
+    let confirmMsg = `¡Seña confirmada! 🎉 Tu turno de *${serviceName}* el ${when} quedó confirmado.\n\nTe esperamos en ${BUSINESS.address}.`;
+    if (appointment.service.prepInstructions) {
+      confirmMsg += `\n\n📋 *Cómo venir preparada:*\n${appointment.service.prepInstructions}`;
+    }
+    await sendWhatsAppText(phone, confirmMsg);
+    await notifyOwner(
+      `✅ Seña confirmada automáticamente: ${serviceName}, ${when}, tel ${phone}. Comprobante: ${receiptUrl || "no se pudo guardar"}.`
+    );
+    await resetConversation(phone);
+  } else {
+    await prisma.appointment.update({
+      where: { id: appointmentId },
+      data: { depositStatus: "rechazado", depositReceiptUrl: receiptUrl },
+    });
+    await sendWhatsAppText(
+      phone,
+      `No pudimos confirmar el pago automáticamente con esa imagen (${check.reason}). Probá mandar una foto más clara del comprobante, o escribinos al ${BUSINESS.whatsapp} y lo revisamos a mano.`
+    );
+    await notifyOwner(
+      `⚠️ Comprobante NO coincide (revisar a mano): ${serviceName}, tel ${phone}. Motivo IA: ${check.reason}. Imagen: ${receiptUrl || "no se pudo guardar"}.`
+    );
+  }
 }
 
 export async function handleIncomingMessage(msg: IncomingMessage) {
@@ -245,6 +349,41 @@ export async function handleIncomingMessage(msg: IncomingMessage) {
     return;
   }
 
+  // Blindaje (05/09/2026, pedido de Pablo tras el caso de Cintia Arias, ver
+  // claude/turnos-app-fixes-pendientes.md punto 24): si llega una foto/PDF de
+  // comprobante y la conversación NO está en el paso "esperando_comprobante"
+  // (por ejemplo porque quedó trabada en otro paso, o porque Romina ya le
+  // pidió la seña a mano y la clienta manda la foto acá igual), no dejamos
+  // que el paso actual (que no espera una imagen) le conteste cualquier
+  // cosa. En cambio buscamos en la base si esa clienta tiene un turno
+  // confirmado con la seña todavía pendiente/rechazada y lo procesamos
+  // igual — así no depende de que el "step" guardado esté sincronizado.
+  if (msg.imageMediaId && conversation.step !== "esperando_comprobante") {
+    const pendingAppointment = await prisma.appointment.findFirst({
+      where: {
+        client: { phone },
+        status: "confirmado",
+        depositStatus: { in: ["pendiente", "rechazado"] },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (pendingAppointment) {
+      await setStep(phone, "esperando_comprobante", { depositAmount: pendingAppointment.depositAmount }, pendingAppointment.id);
+      await processReceiptForAppointment(phone, msg, pendingAppointment.id);
+      return;
+    }
+    // No hay ningún turno con seña pendiente para este teléfono: puede ser
+    // que Romina ya lo haya cargado y cobrado a mano, o que el comprobante
+    // no corresponda a un turno reservado por acá. Avisamos igual para que
+    // se revise, en vez de dejarlo pasar en silencio.
+    await notifyOwner(`📎 Llegó un comprobante de ${phone} pero no encontramos ningún turno con seña pendiente a su nombre. Revisar a mano.`);
+    await sendWhatsAppText(
+      phone,
+      "Recibimos tu comprobante, pero no encontramos un turno con seña pendiente a tu nombre. Si ya tenés un turno reservado, escribinos y lo revisamos a mano 🙂"
+    );
+    return;
+  }
+
   switch (conversation.step) {
     case "inicio": {
       await sendServiceMenu(phone);
@@ -273,8 +412,14 @@ export async function handleIncomingMessage(msg: IncomingMessage) {
 
     case "esperando_fecha": {
       const dateKey = msg.interactiveRowId;
-      if (!dateKey) {
-        await sendWhatsAppText(phone, "Elegí un día de la lista, por favor 🙂");
+      // Blindaje (05/09/2026, ver claude/turnos-app-fixes-pendientes.md punto 24):
+      // si la clienta toca un botón de una lista vieja (ej. la lista de
+      // servicios de un paso anterior que quedó tocable en el chat), el id
+      // que llega acá no tiene forma de fecha (YYYY-MM-DD). Antes se
+      // aceptaba cualquier valor truthy y corrompía la reserva más adelante.
+      if (!dateKey || !/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) {
+        await sendWhatsAppText(phone, "Elegí un día de la lista más reciente, por favor 🙂");
+        if (data.serviceId) await sendDateOptions(phone, data.serviceId, data.serviceName);
         return;
       }
       const nextData = { ...data, dateKey };
@@ -286,8 +431,19 @@ export async function handleIncomingMessage(msg: IncomingMessage) {
 
     case "esperando_horario": {
       const startMin = msg.interactiveRowId;
-      if (!startMin) {
-        await sendWhatsAppText(phone, "Elegí un horario de la lista, por favor 🙂");
+      // Blindaje (05/09/2026, ver claude/turnos-app-fixes-pendientes.md punto 24):
+      // este es el bug real que dejó a una clienta (Cintia Arias) con la
+      // conversación trabada. Si toca un botón de una lista vieja (ej. una
+      // lista de días que quedó tocable en el chat), acá llegaba un dateKey
+      // ("2026-09-04") en vez de minutos. Como no se validaba, se guardaba
+      // igual como si fuera startMin, y más adelante `Number(startMin)` daba
+      // NaN dentro de finalizeBooking → createBooking tiraba una excepción
+      // sin capturar → el webhook la loguea y listo (ver route.ts) → la
+      // clienta se queda sin respuesta y la conversación no vuelve a avanzar
+      // nunca (el step queda pegado en "esperando_nombre" para siempre).
+      if (!startMin || !/^\d+$/.test(startMin)) {
+        await sendWhatsAppText(phone, "Elegí un horario de la lista más reciente, por favor 🙂");
+        if (data.dateKey) await sendTimeOptions(phone, data.serviceId, data.dateKey);
         return;
       }
       const nextData = { ...data, startMin };
@@ -326,72 +482,7 @@ export async function handleIncomingMessage(msg: IncomingMessage) {
         await sendWhatsAppText(phone, "Se nos perdió el turno en curso, empecemos de nuevo. Escribí *hola*.");
         return;
       }
-
-      const { buffer, mimeType } = await downloadWhatsAppMedia(msg.imageMediaId);
-      let receiptUrl: string | null = null;
-      try {
-        const { put } = await import("@vercel/blob");
-        const ext = mimeType === "application/pdf" ? "pdf" : mimeType.split("/")[1] || "jpg";
-        const blob = await put(`comprobantes/${appointmentId}-${Date.now()}.${ext}`, buffer, {
-          access: "public",
-          contentType: mimeType,
-        });
-        receiptUrl = blob.url;
-      } catch (e) {
-        console.error("No se pudo guardar el comprobante en Blob storage:", e);
-      }
-
-      const expectedAmount = Number(data.depositAmount) || DEPOSIT.amount;
-      const check = await verifyDepositReceipt({
-        imageBuffer: buffer,
-        mimeType,
-        expectedAmount,
-        expectedAlias: DEPOSIT.alias,
-        expectedAccountHolder: DEPOSIT.accountHolder,
-      });
-
-      if (check.matches) {
-        await prisma.appointment.update({
-          where: { id: appointmentId },
-          data: { depositStatus: "pagado", depositConfirmedAt: new Date(), depositReceiptUrl: receiptUrl },
-        });
-
-        // Registramos la seña en la misma cuenta/caja que usa Romina desde el
-        // panel (modal "Método de pago"), para que quede todo en un solo lugar.
-        await prisma.payment.create({
-          data: {
-            appointmentId,
-            amount: expectedAmount,
-            method: "transferencia",
-            source: "bot",
-            note: "Seña confirmada automáticamente por el bot de WhatsApp.",
-          },
-        });
-
-        const service = await prisma.service.findUnique({ where: { id: data.serviceId } });
-        const when = `${formatDateHuman(data.dateKey)} a las ${minutesToTime(Number(data.startMin))}`;
-        let confirmMsg = `¡Seña confirmada! 🎉 Tu turno de *${data.serviceName}* el ${when} quedó confirmado.\n\nTe esperamos en ${BUSINESS.address}.`;
-        if (service?.prepInstructions) {
-          confirmMsg += `\n\n📋 *Cómo venir preparada:*\n${service.prepInstructions}`;
-        }
-        await sendWhatsAppText(phone, confirmMsg);
-        await notifyOwner(
-          `✅ Seña confirmada automáticamente: ${data.serviceName}, ${when}, tel ${phone}. Comprobante: ${receiptUrl || "no se pudo guardar"}.`
-        );
-        await resetConversation(phone);
-      } else {
-        await prisma.appointment.update({
-          where: { id: appointmentId },
-          data: { depositStatus: "rechazado", depositReceiptUrl: receiptUrl },
-        });
-        await sendWhatsAppText(
-          phone,
-          `No pudimos confirmar el pago automáticamente con esa imagen (${check.reason}). Probá mandar una foto más clara del comprobante, o escribinos al ${BUSINESS.whatsapp} y lo revisamos a mano.`
-        );
-        await notifyOwner(
-          `⚠️ Comprobante NO coincide (revisar a mano): ${data.serviceName}, tel ${phone}. Motivo IA: ${check.reason}. Imagen: ${receiptUrl || "no se pudo guardar"}.`
-        );
-      }
+      await processReceiptForAppointment(phone, msg, appointmentId);
       return;
     }
 
