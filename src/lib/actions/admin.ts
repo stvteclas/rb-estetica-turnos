@@ -563,7 +563,7 @@ export async function createClient(formData: FormData) {
   requireAdmin();
   const data = clientFieldsFromForm(formData);
   if (!data.name || !data.phone) {
-    redirect("/admin/clientas?error=datos");
+    redirect("/admin/clientas/nueva?error=datos");
   }
   const existing = await prisma.client.findUnique({ where: { phone: data.phone } });
   if (existing) {

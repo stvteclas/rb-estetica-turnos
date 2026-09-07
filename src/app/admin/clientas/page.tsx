@@ -1,7 +1,5 @@
 import { prisma } from "@/lib/prisma";
 import { requireAdminPage } from "@/lib/auth-guard";
-import { createClient } from "@/lib/actions/admin";
-import ClientForm from "@/components/admin/ClientForm";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -43,7 +41,12 @@ export default async function ClientasPage({
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
-        <h1 style={{ fontSize: 24 }}>Clientas</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+          <h1 style={{ fontSize: 24 }}>Clientas</h1>
+          <Link href="/admin/clientas/nueva" className="btn btn-primary">
+            + Agregar clienta
+          </Link>
+        </div>
         <form method="get" style={{ display: "flex", gap: 8 }}>
           <input name="q" defaultValue={q} placeholder="Buscar por nombre o teléfono" />
           <button className="btn btn-ghost btn-sm" type="submit">Buscar</button>
@@ -80,7 +83,12 @@ export default async function ClientasPage({
               </tr>
             ))}
             {clients.length === 0 && (
-              <tr><td colSpan={6} className="muted">No se encontraron clientas.</td></tr>
+              <tr>
+                <td colSpan={6} className="muted">
+                  No se encontraron clientas.{" "}
+                  <Link href="/admin/clientas/nueva">Agregar la primera</Link>
+                </td>
+              </tr>
             )}
           </tbody>
         </table>
@@ -103,13 +111,6 @@ export default async function ClientasPage({
           )}
         </div>
       </div>
-
-      <details className="edit-row card pad" style={{ marginTop: 20 }}>
-        <summary>+ Agregar clienta</summary>
-        <div style={{ marginTop: 12 }}>
-          <ClientForm action={createClient} submitLabel="Crear clienta" />
-        </div>
-      </details>
     </div>
   );
 }
