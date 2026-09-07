@@ -272,11 +272,38 @@ export async function removeBreak(id: string) {
 
 // ---------- Turnos ----------
 
+/** Pedido de Romina (07/09/2026): al cargar un turno a mano, poder elegir
+ * una clienta que ya está en la lista o cargar una nueva. */
+export async function searchClients(query: string): Promise<
+  { id: string; name: string; phone: string; email: string | null }[]
+> {
+  requireAdmin();
+  const q = query.trim();
+  const digits = q.replace(/\D/g, "");
+  const where = q
+    ? {
+        OR: [
+          { name: { contains: q, mode: "insensitive" as const } },
+          { phone: { contains: q } },
+          ...(digits ? [{ phone: { contains: digits } }] : []),
+        ],
+      }
+    : undefined;
+
+  return prisma.client.findMany({
+    where,
+    orderBy: { name: "asc" },
+    take: 40,
+    select: { id: true, name: true, phone: true, email: true },
+  });
+}
+
 export async function createManualAppointment(formData: FormData) {
   requireAdmin();
   const serviceId = String(formData.get("serviceId") || "");
   const dateKey = String(formData.get("date") || "");
   const startMin = timeToMinutes(String(formData.get("startTime") || "09:00"));
+  const existingClientId = String(formData.get("clientId") || "").trim();
   const phone = normalizePhone(String(formData.get("phone") || ""));
   const name = String(formData.get("name") || "").trim();
   const email = String(formData.get("email") || "").trim() || null;
@@ -287,11 +314,18 @@ export async function createManualAppointment(formData: FormData) {
   // usa la del servicio — se sacó el override manual del formulario.
   const duration = service.duration;
 
-  const client = await prisma.client.upsert({
-    where: { phone },
-    update: { ...(name ? { name } : {}), ...(email ? { email } : {}) },
-    create: { name: name || "Sin nombre", phone, email },
-  });
+  const existing = existingClientId
+    ? await prisma.client.findUnique({ where: { id: existingClientId } })
+    : null;
+  if (existingClientId && !existing) throw new Error("Clienta inválida.");
+
+  const client = existing
+    ? existing
+    : await prisma.client.upsert({
+        where: { phone },
+        update: { ...(name ? { name } : {}), ...(email ? { email } : {}) },
+        create: { name: name || "Sin nombre", phone, email },
+      });
 
   await prisma.appointment.create({
     data: {
@@ -308,10 +342,14 @@ export async function createManualAppointment(formData: FormData) {
   revalidatePath("/admin/turnos");
   revalidatePath("/admin");
 
-  if (email) {
+  const notifyName = client.name;
+  const notifyPhone = client.phone;
+  const notifyEmail = client.email || email;
+
+  if (notifyEmail) {
     sendAppointmentConfirmationEmail({
-      to: email,
-      clientName: name || client.name,
+      to: notifyEmail,
+      clientName: notifyName,
       serviceName: service.name,
       dateLabel: formatDateHuman(dateKey),
       timeLabel: toTime(startMin),
@@ -320,9 +358,9 @@ export async function createManualAppointment(formData: FormData) {
   }
 
   sendWhatsAppTemplate({
-    to: toWhatsAppNumber(phone),
+    to: toWhatsAppNumber(notifyPhone),
     templateName: "confirmacion_turno_rb",
-    bodyParams: [name || client.name, service.name, formatDateHuman(dateKey), toTime(startMin)],
+    bodyParams: [notifyName, service.name, formatDateHuman(dateKey), toTime(startMin)],
   }).catch((err) => console.error("[whatsapp] fallo enviando confirmación:", err));
 }
 

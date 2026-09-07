@@ -1,8 +1,11 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { getAvailableDateKeys, getAvailability } from "@/lib/actions/public";
+import { searchClients } from "@/lib/actions/admin";
 import { formatDateHuman, minutesToTime } from "@/lib/format";
+
+type KnownClient = { id: string; name: string; phone: string; email: string | null };
 
 export default function ManualAppointmentForm({
   action,
@@ -31,6 +34,13 @@ export default function ManualAppointmentForm({
   const [slots, setSlots] = useState<number[] | null>(null);
   const [loadingSlots, setLoadingSlots] = useState(false);
 
+  // Pedido de Romina (07/09/2026): listar clientas conocidas o cargar una nueva.
+  const [clientMode, setClientMode] = useState<"pick" | "new">("pick");
+  const [selectedClient, setSelectedClient] = useState<KnownClient | null>(null);
+  const [clientQuery, setClientQuery] = useState("");
+  const [clientResults, setClientResults] = useState<KnownClient[]>([]);
+  const [loadingClients, setLoadingClients] = useState(false);
+
   async function onServiceChange(id: string) {
     setServiceId(id);
     setDateKey("");
@@ -53,6 +63,12 @@ export default function ManualAppointmentForm({
     setSlots(res.ok ? res.slots : []);
   }
 
+  function resetClientPicker() {
+    setClientMode("pick");
+    setSelectedClient(null);
+    setClientQuery("");
+  }
+
   function handleSubmit(formData: FormData) {
     startTransition(async () => {
       await action(formData);
@@ -61,11 +77,23 @@ export default function ManualAppointmentForm({
       setDateKey("");
       setSlots(null);
       setAvailableDates(null);
+      resetClientPicker();
       if (detailsRef.current) {
         detailsRef.current.open = false;
       }
     });
   }
+
+  useEffect(() => {
+    if (clientMode !== "pick" || selectedClient) return;
+    const handle = window.setTimeout(async () => {
+      setLoadingClients(true);
+      const rows = await searchClients(clientQuery);
+      setClientResults(rows);
+      setLoadingClients(false);
+    }, clientQuery ? 200 : 0);
+    return () => window.clearTimeout(handle);
+  }, [clientQuery, clientMode, selectedClient]);
 
   return (
     <details ref={detailsRef} className="edit-row card pad" style={{ marginBottom: 24 }}>
@@ -155,24 +183,134 @@ export default function ManualAppointmentForm({
           </button>
         </div>
 
-        <div className="field">
-          <label>Nombre de la clienta</label>
-          <input name="name" required />
+        <div className="field" style={{ gridColumn: "1 / -1", marginBottom: 0 }}>
+          <label>Clienta</label>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+            <button
+              type="button"
+              className={`btn btn-sm ${clientMode === "pick" ? "btn-primary" : "btn-ghost"}`}
+              onClick={() => {
+                setClientMode("pick");
+                setSelectedClient(null);
+              }}
+            >
+              Clienta conocida
+            </button>
+            <button
+              type="button"
+              className={`btn btn-sm ${clientMode === "new" ? "btn-primary" : "btn-ghost"}`}
+              onClick={() => {
+                setClientMode("new");
+                setSelectedClient(null);
+                setClientQuery("");
+              }}
+            >
+              Clienta nueva
+            </button>
+          </div>
         </div>
-        <div className="field">
-          <label>Teléfono</label>
-          <input name="phone" required />
-        </div>
-        <div className="field">
-          <label>Email (opcional)</label>
-          <input type="email" name="email" />
-        </div>
+
+        {clientMode === "pick" && selectedClient && (
+          <div className="card pad" style={{ gridColumn: "1 / -1", marginBottom: 8 }}>
+            <input type="hidden" name="clientId" value={selectedClient.id} />
+            <input type="hidden" name="name" value={selectedClient.name} />
+            <input type="hidden" name="phone" value={selectedClient.phone} />
+            <input type="hidden" name="email" value={selectedClient.email || ""} />
+            <div style={{ fontWeight: 600 }}>{selectedClient.name}</div>
+            <div className="muted" style={{ fontSize: 13 }}>{selectedClient.phone}{selectedClient.email ? ` · ${selectedClient.email}` : ""}</div>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              style={{ marginTop: 8 }}
+              onClick={() => setSelectedClient(null)}
+            >
+              Elegir otra
+            </button>
+          </div>
+        )}
+
+        {clientMode === "pick" && !selectedClient && (
+          <div className="field" style={{ gridColumn: "1 / -1" }}>
+            <input
+              type="search"
+              value={clientQuery}
+              onChange={(e) => setClientQuery(e.target.value)}
+              placeholder="Buscar por nombre o teléfono…"
+              autoComplete="off"
+            />
+            <p className="muted" style={{ fontSize: 12, margin: "4px 0 0" }}>
+              Se listan las primeras coincidencias. Escribí para filtrar.
+            </p>
+            <div
+              style={{
+                maxHeight: 220,
+                overflowY: "auto",
+                border: "1px solid var(--border)",
+                borderRadius: 10,
+                background: "var(--surface)",
+              }}
+            >
+              {loadingClients && (
+                <p className="muted" style={{ padding: "10px 13px", margin: 0, fontSize: 13 }}>Buscando clientas…</p>
+              )}
+              {!loadingClients && clientResults.length === 0 && (
+                <p className="muted" style={{ padding: "10px 13px", margin: 0, fontSize: 13 }}>
+                  {clientQuery ? "No hay clientas con ese nombre o teléfono." : "No hay clientas cargadas todavía."}
+                </p>
+              )}
+              {!loadingClients && clientResults.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setSelectedClient(c)}
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    textAlign: "left",
+                    padding: "10px 13px",
+                    border: "none",
+                    borderBottom: "1px solid var(--border)",
+                    background: "transparent",
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    fontSize: 14,
+                    color: "var(--text)",
+                  }}
+                >
+                  <span style={{ fontWeight: 600, pointerEvents: "none" }}>{c.name}</span>
+                  <span className="muted" style={{ marginLeft: 8, pointerEvents: "none" }}>{c.phone}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {clientMode === "new" && (
+          <>
+            <div className="field">
+              <label>Nombre de la clienta</label>
+              <input name="name" required />
+            </div>
+            <div className="field">
+              <label>Teléfono</label>
+              <input name="phone" required />
+            </div>
+            <div className="field">
+              <label>Email (opcional)</label>
+              <input type="email" name="email" />
+            </div>
+          </>
+        )}
         <div className="field" style={{ gridColumn: "1 / -1" }}>
           <label>Notas</label>
           <textarea name="notes" rows={2} />
         </div>
         <div style={{ gridColumn: "1 / -1" }}>
-          <button className="btn btn-primary btn-sm" type="submit">
+          <button
+            className="btn btn-primary btn-sm"
+            type="submit"
+            disabled={isPending || (clientMode === "pick" && !selectedClient)}
+          >
             {isPending ? "Cargando..." : "Cargar turno"}
           </button>
         </div>
