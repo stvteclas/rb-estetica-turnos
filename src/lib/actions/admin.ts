@@ -542,21 +542,74 @@ export async function deletePayment(id: string, appointmentId: string) {
 
 // ---------- Clientas ----------
 
+function clientFieldsFromForm(formData: FormData) {
+  const name = String(formData.get("name") || "").trim();
+  const phone = normalizePhone(String(formData.get("phone") || ""));
+  const email = String(formData.get("email") || "").trim() || null;
+  const birthDateRaw = String(formData.get("birthDate") || "").trim();
+  const lastDiagnosis = String(formData.get("lastDiagnosis") || "").trim() || null;
+  const notes = String(formData.get("notes") || "").trim() || null;
+  return {
+    name,
+    phone,
+    email,
+    birthDate: birthDateRaw ? keyToDate(birthDateRaw) : null,
+    lastDiagnosis,
+    notes,
+  };
+}
+
+export async function createClient(formData: FormData) {
+  requireAdmin();
+  const data = clientFieldsFromForm(formData);
+  if (!data.name || !data.phone) {
+    redirect("/admin/clientas?error=datos");
+  }
+  const existing = await prisma.client.findUnique({ where: { phone: data.phone } });
+  if (existing) {
+    redirect(`/admin/clientas/${existing.id}?aviso=existe`);
+  }
+  const created = await prisma.client.create({
+    data: { ...data, source: "manual" },
+  });
+  revalidatePath("/admin/clientas");
+  redirect(`/admin/clientas/${created.id}`);
+}
+
 export async function updateClient(id: string, formData: FormData) {
   requireAdmin();
-  const birthDateRaw = String(formData.get("birthDate") || "").trim();
+  const data = clientFieldsFromForm(formData);
+  if (!data.name || !data.phone) {
+    redirect(`/admin/clientas/${id}?error=datos`);
+  }
+  const clash = await prisma.client.findUnique({ where: { phone: data.phone } });
+  if (clash && clash.id !== id) {
+    redirect(`/admin/clientas/${id}?error=telefono`);
+  }
   await prisma.client.update({
     where: { id },
-    data: {
-      name: String(formData.get("name") || "").trim(),
-      phone: normalizePhone(String(formData.get("phone") || "")),
-      email: String(formData.get("email") || "").trim() || null,
-      birthDate: birthDateRaw ? keyToDate(birthDateRaw) : null,
-      lastDiagnosis: String(formData.get("lastDiagnosis") || "").trim() || null,
-      notes: String(formData.get("notes") || "").trim() || null,
-    },
+    data,
   });
   revalidatePath(`/admin/clientas/${id}`);
   revalidatePath("/admin/clientas");
+}
+
+export async function deleteClient(id: string) {
+  requireAdmin();
+  const appointments = await prisma.appointment.findMany({
+    where: { clientId: id },
+    select: { id: true },
+  });
+  const appointmentIds = appointments.map((a) => a.id);
+  await prisma.$transaction(async (tx) => {
+    if (appointmentIds.length > 0) {
+      await tx.payment.deleteMany({ where: { appointmentId: { in: appointmentIds } } });
+      await tx.appointment.deleteMany({ where: { clientId: id } });
+    }
+    await tx.client.delete({ where: { id } });
+  });
+  revalidatePath("/admin/clientas");
+  revalidatePath("/admin/turnos");
+  revalidatePath("/admin");
   redirect("/admin/clientas");
 }

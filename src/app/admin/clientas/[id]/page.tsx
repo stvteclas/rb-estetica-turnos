@@ -1,15 +1,30 @@
 import { prisma } from "@/lib/prisma";
 import { requireAdminPage } from "@/lib/auth-guard";
-import { updateClient, createAppointmentForClient } from "@/lib/actions/admin";
+import { updateClient, deleteClient, createAppointmentForClient } from "@/lib/actions/admin";
 import { dateToKey, formatDateHuman, formatMoney, minutesToTime, STATUS_LABELS, PAYMENT_METHOD_LABELS } from "@/lib/format";
 import { toWhatsAppNumber } from "@/lib/phone";
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import WhatsAppIcon from "@/components/WhatsAppIcon";
+import ClientForm from "@/components/admin/ClientForm";
+import DeleteClientButton from "@/components/admin/DeleteClientButton";
 import NewClientAppointmentForm from "@/components/admin/NewClientAppointmentForm";
 
 export const dynamic = "force-dynamic";
 
-export default async function ClientDetailPage({ params }: { params: { id: string } }) {
+const AVISOS: Record<string, string> = {
+  existe: "Ese teléfono ya estaba cargado. Esta es la ficha.",
+  datos: "Faltan nombre o teléfono.",
+  telefono: "Ese teléfono ya lo tiene otra clienta.",
+};
+
+export default async function ClientDetailPage({
+  params,
+  searchParams,
+}: {
+  params: { id: string };
+  searchParams: { aviso?: string; error?: string };
+}) {
   requireAdminPage();
   const client = await prisma.client.findUnique({
     where: { id: params.id },
@@ -28,9 +43,19 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
     select: { id: true, name: true, duration: true },
   });
 
+  const notice = searchParams.aviso || searchParams.error;
+
   return (
     <div>
-      <h1 style={{ fontSize: 24, marginBottom: 4 }}>{client.name}</h1>
+      <p style={{ marginBottom: 12 }}>
+        <Link href="/admin/clientas" className="muted" style={{ fontSize: 13 }}>
+          ← Clientas
+        </Link>
+      </p>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap", marginBottom: 4 }}>
+        <h1 style={{ fontSize: 24 }}>{client.name}</h1>
+        <DeleteClientButton action={deleteClient.bind(null, client.id)} />
+      </div>
       <p className="muted" style={{ marginBottom: 20 }}>
         <a
           href={`https://wa.me/${toWhatsAppNumber(client.phone)}`}
@@ -42,36 +67,25 @@ export default async function ClientDetailPage({ params }: { params: { id: strin
         </a>
       </p>
 
+      {notice && AVISOS[notice] && (
+        <div className="error-box" style={{ marginBottom: 16 }}>
+          {AVISOS[notice]}
+        </div>
+      )}
+
       <div className="card pad" style={{ marginBottom: 24 }}>
-        <form action={updateClient.bind(null, client.id)} className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <div className="field">
-            <label>Nombre</label>
-            <input name="name" defaultValue={client.name} required />
-          </div>
-          <div className="field">
-            <label>Teléfono</label>
-            <input name="phone" defaultValue={client.phone} required />
-          </div>
-          <div className="field">
-            <label>Email</label>
-            <input type="email" name="email" defaultValue={client.email || ""} />
-          </div>
-          <div className="field">
-            <label>Fecha de nacimiento</label>
-            <input type="date" name="birthDate" defaultValue={client.birthDate ? dateToKey(client.birthDate) : ""} />
-          </div>
-          <div className="field" style={{ gridColumn: "1 / -1" }}>
-            <label>Último diagnóstico</label>
-            <textarea name="lastDiagnosis" rows={2} defaultValue={client.lastDiagnosis || ""} />
-          </div>
-          <div className="field" style={{ gridColumn: "1 / -1" }}>
-            <label>Notas generales</label>
-            <textarea name="notes" rows={2} defaultValue={client.notes || ""} />
-          </div>
-          <div style={{ gridColumn: "1 / -1" }}>
-            <button className="btn btn-primary btn-sm" type="submit">Guardar</button>
-          </div>
-        </form>
+        <ClientForm
+          action={updateClient.bind(null, client.id)}
+          submitLabel="Guardar"
+          defaults={{
+            name: client.name,
+            phone: client.phone,
+            email: client.email,
+            birthDate: client.birthDate ? dateToKey(client.birthDate) : "",
+            lastDiagnosis: client.lastDiagnosis,
+            notes: client.notes,
+          }}
+        />
       </div>
 
       <NewClientAppointmentForm action={createAppointmentForClient.bind(null, client.id)} services={services} />

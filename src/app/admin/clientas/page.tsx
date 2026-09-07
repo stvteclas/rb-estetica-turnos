@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireAdminPage } from "@/lib/auth-guard";
+import { createClient } from "@/lib/actions/admin";
+import ClientForm from "@/components/admin/ClientForm";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -9,7 +11,7 @@ const PAGE_SIZE = 30;
 export default async function ClientasPage({
   searchParams,
 }: {
-  searchParams: { q?: string; page?: string };
+  searchParams: { q?: string; page?: string; error?: string };
 }) {
   requireAdminPage();
   const q = searchParams.q?.trim() || "";
@@ -47,6 +49,12 @@ export default async function ClientasPage({
           <button className="btn btn-ghost btn-sm" type="submit">Buscar</button>
         </form>
       </div>
+
+      {searchParams.error === "datos" && (
+        <div className="error-box" style={{ marginBottom: 16 }}>
+          Faltan nombre o teléfono.
+        </div>
+      )}
 
       <div className="card table-wrap">
         <table>
@@ -95,6 +103,13 @@ export default async function ClientasPage({
           )}
         </div>
       </div>
+
+      <details className="edit-row card pad" style={{ marginTop: 20 }}>
+        <summary>+ Agregar clienta</summary>
+        <div style={{ marginTop: 12 }}>
+          <ClientForm action={createClient} submitLabel="Crear clienta" />
+        </div>
+      </details>
     </div>
   );
 }

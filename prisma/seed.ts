@@ -80,6 +80,36 @@ const SERVICES = [
   },
 ];
 
+async function ensureAdmin(email: string | undefined, password: string | undefined, name: string) {
+  if (!email || !password) return false;
+  const normalized = email.trim().toLowerCase();
+  const existingAdmin = await prisma.adminUser.findUnique({ where: { email: normalized } });
+  if (!existingAdmin) {
+    const { hash, salt } = hashPassword(password);
+    await prisma.adminUser.create({
+      data: { email: normalized, passwordHash: hash, passwordSalt: salt, name },
+    });
+    console.log(`Usuario admin creado: ${normalized}`);
+    return true;
+  }
+  if (process.env.RESET_ADMIN_PASSWORD === "true") {
+    // Por defecto NO tocamos la contraseña de un admin que ya existe —
+    // así, si Romina la cambió desde "Mi cuenta" en la app, un redeploy
+    // (que corre `npm run seed`) no se la pisa. Para resetearla a mano,
+    // agregar RESET_ADMIN_PASSWORD=true en el .env antes de correr el seed
+    // (y sacarlo después, para no dejarlo pisando la contraseña siempre).
+    const { hash, salt } = hashPassword(password);
+    await prisma.adminUser.update({
+      where: { email: normalized },
+      data: { passwordHash: hash, passwordSalt: salt, name },
+    });
+    console.log(`Ya existía un admin con ese email (${normalized}) — contraseña reseteada (RESET_ADMIN_PASSWORD=true).`);
+    return true;
+  }
+  console.log(`Ya existía un admin con ese email (${normalized}) — no se tocó la contraseña.`);
+  return true;
+}
+
 async function main() {
   for (const s of SERVICES) {
     const existing = await prisma.service.findFirst({ where: { name: s.name } });
@@ -89,36 +119,20 @@ async function main() {
     }
   }
 
-  const email = process.env.ADMIN_EMAIL;
-  const password = process.env.ADMIN_PASSWORD;
-  const name = process.env.ADMIN_NAME || "Romina";
+  const rominaOk = await ensureAdmin(
+    process.env.ADMIN_EMAIL,
+    process.env.ADMIN_PASSWORD,
+    process.env.ADMIN_NAME || "Romina"
+  );
+  const agenciaOk = await ensureAdmin(
+    process.env.AGENCY_ADMIN_EMAIL,
+    process.env.AGENCY_ADMIN_PASSWORD,
+    process.env.AGENCY_ADMIN_NAME || "Pablo"
+  );
 
-  if (email && password) {
-    const existingAdmin = await prisma.adminUser.findUnique({ where: { email } });
-    if (!existingAdmin) {
-      const { hash, salt } = hashPassword(password);
-      await prisma.adminUser.create({
-        data: { email: email.toLowerCase(), passwordHash: hash, passwordSalt: salt, name },
-      });
-      console.log(`Usuario admin creado: ${email}`);
-    } else if (process.env.RESET_ADMIN_PASSWORD === "true") {
-      // Por defecto NO tocamos la contraseña de un admin que ya existe —
-      // así, si Romina la cambió desde "Mi cuenta" en la app, un redeploy
-      // (que corre `npm run seed`) no se la pisa. Para resetearla a mano,
-      // agregar RESET_ADMIN_PASSWORD=true en el .env antes de correr el seed
-      // (y sacarlo después, para no dejarlo pisando la contraseña siempre).
-      const { hash, salt } = hashPassword(password);
-      await prisma.adminUser.update({
-        where: { email },
-        data: { passwordHash: hash, passwordSalt: salt, name },
-      });
-      console.log(`Ya existía un admin con ese email (${email}) — contraseña reseteada (RESET_ADMIN_PASSWORD=true).`);
-    } else {
-      console.log(`Ya existía un admin con ese email (${email}) — no se tocó la contraseña.`);
-    }
-  } else {
+  if (!rominaOk && !agenciaOk) {
     console.log(
-      "No se definieron ADMIN_EMAIL / ADMIN_PASSWORD — no se creó ningún usuario de acceso al panel."
+      "No se definieron ADMIN_EMAIL / ADMIN_PASSWORD ni AGENCY_ADMIN_EMAIL / AGENCY_ADMIN_PASSWORD — no se creó ningún usuario de acceso al panel."
     );
   }
 }
