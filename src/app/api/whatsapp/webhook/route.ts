@@ -5,6 +5,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleIncomingMessage, markHumanTakeover } from "@/lib/bot/flow";
 
+// Número del bot de atención de la agencia (bot-atencion-agencia) — nunca es
+// una clienta real. Se usa para que este bot no le conteste si el número de
+// la agencia le escribe (ej. porque alguien del negocio usó este mismo
+// WhatsApp para hablar con el bot de la agencia): sin este filtro, cualquier
+// mensaje que la agencia mande a este número se procesa como si fuera de una
+// clienta y el bot responde, la agencia lo toma como respuesta del cliente y
+// vuelve a preguntar — ida y vuelta infinito entre los dos bots (pasó con
+// Romina el 13/09/2026). Configurar en Vercel: AGENCIA_BOT_WHATSAPP_NUMBER.
+function esMensajeDelBotDeLaAgencia(from: string | undefined): boolean {
+  const agenciaNumero = process.env.AGENCIA_BOT_WHATSAPP_NUMBER;
+  return !!agenciaNumero && from === agenciaNumero;
+}
+
 export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
   const mode = params.get("hub.mode");
@@ -34,7 +47,7 @@ export async function POST(req: NextRequest) {
     if (change?.field === "smb_message_echoes" && Array.isArray(echoes)) {
       for (const echo of echoes) {
         const clientPhone = echo?.to as string | undefined;
-        if (clientPhone) {
+        if (clientPhone && !esMensajeDelBotDeLaAgencia(clientPhone)) {
           await markHumanTakeover(clientPhone);
         }
       }
@@ -49,6 +62,12 @@ export async function POST(req: NextRequest) {
     }
 
     const from = message.from as string;
+
+    if (esMensajeDelBotDeLaAgencia(from)) {
+      // Nunca contestarle al bot de la agencia — ver comentario arriba.
+      console.warn(`Mensaje ignorado (viene del bot de la agencia, no de una clienta real): ${from}`);
+      return NextResponse.json({ ok: true });
+    }
 
     if (message.type === "text") {
       await handleIncomingMessage({ from, text: message.text?.body });
