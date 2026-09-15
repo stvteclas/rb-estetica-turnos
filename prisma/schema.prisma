@@ -121,10 +121,38 @@ model Client {
   email         String?
   birthDate     DateTime?
   notes         String?
-  lastDiagnosis String? // último diagnóstico / observación general de la clienta
+  // Copia de solo lectura del texto del diagnóstico más reciente (ver modelo
+  // Diagnosis), mantenida automáticamente por addDiagnosis() para poder
+  // mostrarla en el listado de clientas sin traer todo el historial. NO se
+  // edita a mano desde ningún formulario — Pablo pidió (15/09/2026) que el
+  // diagnóstico no se pueda borrar nunca, así que el único lugar que la
+  // modifica es addDiagnosis(), que solo AGREGA registros nuevos.
+  lastDiagnosis String?
   source        String        @default("online") // online | manual | tuturno (importado) | whatsapp_bot
   createdAt     DateTime      @default(now())
   appointments  Appointment[]
+  diagnoses     Diagnosis[]
+}
+
+// Historial de diagnósticos de una clienta — pedido de Pablo (15/09/2026):
+// Romina no tenía forma de ver el histórico completo mientras atendía (solo
+// el diagnóstico de ESE turno) y además podía borrarlo sin querer editando
+// la ficha o el turno. Este modelo reemplaza esa lógica: cada fila es un
+// registro agregado, nunca se edita ni se borra (no hay updateDiagnosis ni
+// deleteDiagnosis en admin.ts, a propósito). Se puede crear desde el popup
+// de un turno (appointmentId cargado) o directo desde la ficha de la
+// clienta (appointmentId null).
+model Diagnosis {
+  id            String       @id @default(cuid())
+  clientId      String
+  client        Client       @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  appointmentId String?
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  text          String
+  createdAt     DateTime     @default(now())
+
+  @@index([clientId])
+  @@index([appointmentId])
 }
 
 model Appointment {
@@ -139,7 +167,11 @@ model Appointment {
   status    String   @default("confirmado") // confirmado | cancelado | atendido | ausente
   paymentMethod String? // efectivo | tarjeta | transferencia | descuento (se carga cuando se marca "atendido")
   notes     String? // notas de la clienta al reservar
-  diagnosis String? // diagnóstico / tratamiento realizado en ESTA sesión (para seguimiento)
+  // DEPRECADO (15/09/2026): campo viejo, un solo texto por turno que se
+  // podía sobreescribir/borrar. Se deja de escribir desde ahora (ver
+  // addDiagnosis() en admin.ts) — se conserva solo para mostrar los
+  // diagnósticos ya cargados antes de este cambio (historial viejo).
+  diagnosis String? // diagnóstico / tratamiento realizado en ESTA sesión (para seguimiento) — legacy, ver Diagnosis
   source    String   @default("online") // online | manual | whatsapp_bot
 
   // --- Seña (bot de WhatsApp) ---
@@ -157,6 +189,7 @@ model Appointment {
   reminderShortSentAt DateTime? // recordatorio corto (mismo día) ya enviado
 
   payments  Payment[]
+  diagnoses Diagnosis[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

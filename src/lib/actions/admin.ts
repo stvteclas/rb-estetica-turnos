@@ -369,31 +369,54 @@ export async function updateAppointment(id: string, formData: FormData) {
   const status = String(formData.get("status") || "confirmado");
   const startMin = timeToMinutes(String(formData.get("startTime") || "09:00"));
   const endMin = timeToMinutes(String(formData.get("endTime") || "09:30"));
-  const diagnosis = String(formData.get("diagnosis") || "").trim() || null;
   const paymentMethod = String(formData.get("paymentMethod") || "").trim() || null;
   // Fecha del turno — reprogramar a otro día (pedido de Romina, 02/09/2026).
   // Opcional por compatibilidad: si el formulario no la manda, no la tocamos.
   const dateKeyRaw = String(formData.get("date") || "").trim();
   const dateData = dateKeyRaw ? { date: keyToDate(dateKeyRaw) } : {};
 
+  // Nota (15/09/2026): este formulario YA NO toca el diagnóstico — se sacó el
+  // campo de acá a propósito. El diagnóstico ahora se agrega con
+  // addDiagnosis(), que solo crea registros nuevos y nunca sobreescribe ni
+  // borra los anteriores (pedido de Pablo/Romina).
   const appt = await prisma.appointment.update({
     where: { id },
-    data: { status, startMin, endMin, diagnosis, paymentMethod, ...dateData },
+    data: { status, startMin, endMin, paymentMethod, ...dateData },
     include: { client: true },
   });
-
-  // Si se cargó un diagnóstico, lo dejamos también como "último diagnóstico"
-  // de la clienta para que quede a mano en su ficha.
-  if (diagnosis) {
-    await prisma.client.update({
-      where: { id: appt.clientId },
-      data: { lastDiagnosis: diagnosis },
-    });
-  }
 
   revalidatePath("/admin/turnos");
   revalidatePath("/admin");
   revalidatePath(`/admin/clientas/${appt.clientId}`);
+}
+
+/** Agrega un diagnóstico nuevo al historial de la clienta — pedido de Pablo
+ * (15/09/2026): Romina puede cargar tantos diagnósticos como quiera, pero
+ * ninguno se puede editar ni borrar después (a propósito no existe
+ * updateDiagnosis ni deleteDiagnosis). Se puede llamar con appointmentId
+ * (desde el popup de un turno, mientras atiende a la clienta) o sin él
+ * (desde la ficha de la clienta directamente). Actualiza también
+ * Client.lastDiagnosis (de solo lectura, se usa nada más para el listado de
+ * clientas) para que quede el texto más reciente a mano sin traer todo el
+ * historial ahí. */
+export async function addDiagnosis(clientId: string, appointmentId: string | null, formData: FormData) {
+  requireAdmin();
+  const text = String(formData.get("text") || "").trim();
+  if (!text) throw new Error("Escribí un diagnóstico antes de guardar.");
+
+  await prisma.$transaction([
+    prisma.diagnosis.create({
+      data: { clientId, appointmentId: appointmentId || null, text },
+    }),
+    prisma.client.update({
+      where: { id: clientId },
+      data: { lastDiagnosis: text },
+    }),
+  ]);
+
+  revalidatePath("/admin/turnos");
+  revalidatePath("/admin");
+  revalidatePath(`/admin/clientas/${clientId}`);
 }
 
 /** Crea un turno nuevo para una clienta que YA existe (botón "Nuevo turno"
@@ -547,14 +570,16 @@ function clientFieldsFromForm(formData: FormData) {
   const phone = normalizePhone(String(formData.get("phone") || ""));
   const email = String(formData.get("email") || "").trim() || null;
   const birthDateRaw = String(formData.get("birthDate") || "").trim();
-  const lastDiagnosis = String(formData.get("lastDiagnosis") || "").trim() || null;
   const notes = String(formData.get("notes") || "").trim() || null;
+  // Nota (15/09/2026): "lastDiagnosis" YA NO se toma de este formulario a
+  // propósito — antes Romina podía borrar el diagnóstico de la clienta
+  // vaciando este campo y guardando. Ahora es de solo lectura, la actualiza
+  // únicamente addDiagnosis() cuando se agrega un diagnóstico nuevo.
   return {
     name,
     phone,
     email,
     birthDate: birthDateRaw ? keyToDate(birthDateRaw) : null,
-    lastDiagnosis,
     notes,
   };
 }

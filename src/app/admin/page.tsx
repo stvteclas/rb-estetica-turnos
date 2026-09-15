@@ -16,7 +16,11 @@ export default async function AdminDashboard() {
     // (solo quedan en el histórico de la clienta, ver /admin/clientas/[id]).
     prisma.appointment.findMany({
       where: { date: today, status: { not: "cancelado" } },
-      include: { client: true, service: true, payments: { orderBy: { createdAt: "asc" } } },
+      include: {
+        client: { include: { diagnoses: { orderBy: { createdAt: "desc" } } } },
+        service: true,
+        payments: { orderBy: { createdAt: "asc" } },
+      },
       orderBy: { startMin: "asc" },
     }),
     // Pedido de Romina (03/09/2026): agendar el próximo turno de la clienta
@@ -49,7 +53,12 @@ export default async function AdminDashboard() {
             diagnosis: a.diagnosis,
             notes: a.notes,
             source: a.source,
-            client: { id: a.client.id, name: a.client.name, phone: a.client.phone },
+            client: {
+              id: a.client.id,
+              name: a.client.name,
+              phone: a.client.phone,
+              diagnoses: a.client.diagnoses.map((d) => ({ id: d.id, text: d.text, createdAt: d.createdAt.toISOString() })),
+            },
             service: { name: a.service.name, price: a.service.price },
             payments: a.payments.map((p) => ({
               id: p.id,

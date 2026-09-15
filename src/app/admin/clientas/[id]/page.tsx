@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { requireAdminPage } from "@/lib/auth-guard";
-import { updateClient, deleteClient, createAppointmentForClient } from "@/lib/actions/admin";
+import { updateClient, deleteClient, createAppointmentForClient, addDiagnosis } from "@/lib/actions/admin";
 import { dateToKey, formatDateHuman, formatMoney, minutesToTime, STATUS_LABELS, PAYMENT_METHOD_LABELS } from "@/lib/format";
 import { toWhatsAppNumber } from "@/lib/phone";
 import { notFound } from "next/navigation";
@@ -9,6 +9,7 @@ import WhatsAppIcon from "@/components/WhatsAppIcon";
 import ClientForm from "@/components/admin/ClientForm";
 import DeleteClientButton from "@/components/admin/DeleteClientButton";
 import NewClientAppointmentForm from "@/components/admin/NewClientAppointmentForm";
+import DiagnosisHistory from "@/components/admin/DiagnosisHistory";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +34,7 @@ export default async function ClientDetailPage({
         include: { service: true },
         orderBy: { date: "desc" },
       },
+      diagnoses: { orderBy: { createdAt: "desc" } },
     },
   });
   if (!client) notFound();
@@ -82,13 +84,19 @@ export default async function ClientDetailPage({
             phone: client.phone,
             email: client.email,
             birthDate: client.birthDate ? dateToKey(client.birthDate) : "",
-            lastDiagnosis: client.lastDiagnosis,
             notes: client.notes,
           }}
         />
       </div>
 
       <NewClientAppointmentForm action={createAppointmentForClient.bind(null, client.id)} services={services} />
+
+      <div className="card pad" style={{ marginBottom: 24 }}>
+        <DiagnosisHistory
+          action={addDiagnosis.bind(null, client.id, null)}
+          diagnoses={client.diagnoses.map((d) => ({ id: d.id, text: d.text, createdAt: d.createdAt.toISOString() }))}
+        />
+      </div>
 
       <h3 style={{ fontSize: 16, marginBottom: 12 }}>Historial de tratamientos</h3>
       {client.appointments.length === 0 && <p className="muted">Todavía no tiene turnos registrados.</p>}

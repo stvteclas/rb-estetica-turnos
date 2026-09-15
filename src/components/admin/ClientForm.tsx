@@ -3,7 +3,6 @@ export interface ClientFormValues {
   phone?: string;
   email?: string | null;
   birthDate?: string;
-  lastDiagnosis?: string | null;
   notes?: string | null;
 }
 
@@ -34,10 +33,6 @@ export default function ClientForm({
       <div className="field">
         <label>Fecha de nacimiento</label>
         <input type="date" name="birthDate" defaultValue={d.birthDate || ""} />
-      </div>
-      <div className="field" style={{ gridColumn: "1 / -1" }}>
-        <label>Último diagnóstico</label>
-        <textarea name="lastDiagnosis" rows={2} defaultValue={d.lastDiagnosis || ""} />
       </div>
       <div className="field" style={{ gridColumn: "1 / -1" }}>
         <label>Notas generales</label>

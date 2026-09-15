@@ -2,11 +2,12 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { updateAppointment, quickUpdateAppointment, registerPayment, deletePayment, createAppointmentForClient, sendManualReminder } from "@/lib/actions/admin";
+import { updateAppointment, quickUpdateAppointment, registerPayment, deletePayment, createAppointmentForClient, sendManualReminder, addDiagnosis } from "@/lib/actions/admin";
 import { minutesToTime, formatMoney, STATUS_LABELS, PAYMENT_METHOD_LABELS } from "@/lib/format";
 import { toWhatsAppNumber } from "@/lib/phone";
 import WhatsAppIcon from "@/components/WhatsAppIcon";
 import NewClientAppointmentForm from "@/components/admin/NewClientAppointmentForm";
+import DiagnosisHistory, { DiagnosisVM } from "@/components/admin/DiagnosisHistory";
 
 export interface PaymentVM {
   id: string;
@@ -32,7 +33,7 @@ export interface AppointmentRowVM {
   // Pedido de Romina (04/09/2026): saber si ya se le mandó el recordatorio
   // de 48hs, para mostrar el botón de WhatsApp en dos estados en la grilla.
   reminder48SentAt: string | null;
-  client: { id: string; name: string; phone: string };
+  client: { id: string; name: string; phone: string; diagnoses: DiagnosisVM[] };
   service: { name: string; price: number };
   payments: PaymentVM[];
 }
@@ -382,11 +383,12 @@ export default function AppointmentCard({
               )}
             </div>
 
-            {appt.diagnosis && (
-              <div className="muted" style={{ marginTop: 14, fontSize: 13 }}>
-                Último diagnóstico: {appt.diagnosis}
-              </div>
-            )}
+            <div style={{ marginTop: 18, borderTop: "1px solid var(--border)", paddingTop: 16 }}>
+              <DiagnosisHistory
+                action={addDiagnosis.bind(null, appt.client.id, appt.id)}
+                diagnoses={appt.client.diagnoses}
+              />
+            </div>
 
             {services.length > 0 && (
               <div style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 16 }}>
@@ -445,10 +447,6 @@ export default function AppointmentCard({
                 <div className="field">
                   <label>Hora fin</label>
                   <input type="time" name="endTime" defaultValue={minutesToTime(appt.endMin)} required />
-                </div>
-                <div className="field" style={{ gridColumn: "1 / -1" }}>
-                  <label>Diagnóstico / tratamiento realizado (para el seguimiento de la clienta)</label>
-                  <textarea name="diagnosis" rows={2} defaultValue={appt.diagnosis || ""} />
                 </div>
                 <div style={{ gridColumn: "1 / -1" }}>
                   <button className="btn btn-primary btn-sm" type="submit">Guardar cambios</button>

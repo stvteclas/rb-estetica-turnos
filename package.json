@@ -12,7 +12,8 @@
     "import-tuturno-historial": "tsx prisma/import-tuturno-historial.ts",
     "set-prep-instructions": "tsx prisma/set-prep-instructions.ts",
     "set-business-settings": "tsx prisma/set-business-settings.ts",
-    "backfill-day-hours": "tsx prisma/backfill-day-hours.ts"
+    "backfill-day-hours": "tsx prisma/backfill-day-hours.ts",
+    "backfill-diagnosis-history": "tsx prisma/backfill-diagnosis-history.ts"
   },
   "dependencies": {
     "@prisma/client": "5.18.0",
