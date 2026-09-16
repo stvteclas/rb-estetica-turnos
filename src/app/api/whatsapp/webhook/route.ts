@@ -4,7 +4,6 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { handleIncomingMessage, markHumanTakeover } from "@/lib/bot/flow";
-import { notifyOwner } from "@/lib/whatsapp";
 
 // Número del bot de atención de la agencia (bot-atencion-agencia) — nunca es
 // una clienta real. Se usa para que este bot no le conteste si el número de
@@ -62,11 +61,16 @@ export async function POST(req: NextRequest) {
     // resultado real (entregado o fallido, con motivo) llega después, acá, de
     // forma asincrónica. Sin loguear esto no hay forma de distinguir "se mandó
     // pero no llegó" de "se mandó y llegó" mirando solo los logs de la request
-    // original (mismo problema ya visto en el bot de la agencia). Ahora se
-    // loguean todos, y si el status es "failed" se le avisa a Romina/Pablo.
+    // original (mismo problema ya visto en el bot de la agencia).
+    //
+    // Se loguean todos los status, pero a propósito NO se manda ningún aviso
+    // por WhatsApp cuando uno falla (a pedido de Pablo, 16/09/2026) — un
+    // intento anterior de avisar por acá generó un loop infinito cuando el
+    // propio aviso (mensaje de texto libre, fuera de la ventana de 24hs)
+    // también fallaba y volvía a disparar el mismo código. Para revisar
+    // entregas fallidas, consultar los logs de Vercel (buscar "FAILED").
     const statuses = value?.statuses;
     if (Array.isArray(statuses) && statuses.length > 0) {
-      const ownerNumber = process.env.OWNER_WHATSAPP_NUMBER;
       for (const s of statuses) {
         const info = `wamid=${s.id} to=${s.recipient_id} status=${s.status}`;
         if (s.status === "failed") {
@@ -76,25 +80,6 @@ export async function POST(req: NextRequest) {
                 .join("; ")
             : "sin detalle";
           console.error(`WhatsApp delivery FAILED: ${info} errors=${errs}`);
-          // OJO: si el destinatario que falló es el propio dueño (Romina/Pablo,
-          // OWNER_WHATSAPP_NUMBER), NO llamar a notifyOwner acá — notifyOwner le
-          // manda un mensaje de TEXTO libre (no plantilla) a ese mismo número, y
-          // los mensajes de texto libre solo se pueden mandar dentro de la
-          // ventana de 24hs desde el último mensaje del destinatario (error
-          // 131047 si no). Si esa notificación también falla, generaría OTRO
-          // evento de status "failed" para el mismo número, que dispararía este
-          // mismo código de nuevo — un loop infinito de reintentos (esto pasó en
-          // producción el 16/09/2026: decenas de "failed" seguidos). Para ese
-          // caso, solo se loguea, nunca se re-notifica.
-          if (s.recipient_id === ownerNumber) {
-            console.error(
-              `No se pudo avisarle al dueño por WhatsApp (${s.recipient_id}) — probablemente fuera de la ventana de 24hs. No se reintenta para evitar un loop.`
-            );
-          } else {
-            await notifyOwner(
-              `⚠️ Un mensaje de WhatsApp no se pudo entregar a ${s.recipient_id}. Motivo: ${errs}`
-            );
-          }
         } else {
           console.log(`WhatsApp status update: ${info}`);
         }
