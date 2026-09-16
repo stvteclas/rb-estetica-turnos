@@ -107,6 +107,21 @@ export async function sendWhatsAppButtons(to: string, bodyText: string, buttons:
 // un mensaje que NO es respuesta a algo que la clienta escribió en las últimas
 // 24hs (ej. el recordatorio de preparación). Ver bot-whatsapp-turnos.md para el
 // texto exacto de las plantillas a dar de alta.
+// Meta rechaza cualquier parámetro de plantilla que tenga saltos de línea,
+// tabs, o 4+ espacios seguidos (error 132018, "Param text cannot have
+// new-line/tab characters or more than 4 consecutive spaces") — pasa fácil
+// con texto libre cargado por Romina en el panel (ej. el campo "Consejos"
+// de un servicio, con viñetas separadas por Enter). Se sanea acá, en el
+// único lugar por el que pasan todos los parámetros de todas las plantillas
+// (recordatorios, confirmación, seña vencida), para no repetir el fix en
+// cada lugar que arma un mensaje.
+function sanitizeTemplateParam(text: string): string {
+  return text
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/ {2,}/g, " ")
+    .trim();
+}
+
 export async function sendWhatsAppTemplate(params: {
   to: string;
   templateName: string;
@@ -121,7 +136,15 @@ export async function sendWhatsAppTemplate(params: {
       name: params.templateName,
       language: { code: params.languageCode || "es_AR" },
       components: params.bodyParams?.length
-        ? [{ type: "body", parameters: params.bodyParams.map((text) => ({ type: "text", text })) }]
+        ? [
+            {
+              type: "body",
+              parameters: params.bodyParams.map((text) => ({
+                type: "text",
+                text: sanitizeTemplateParam(text),
+              })),
+            },
+          ]
         : undefined,
     },
   });
