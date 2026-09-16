@@ -66,6 +66,7 @@ export async function POST(req: NextRequest) {
     // loguean todos, y si el status es "failed" se le avisa a Romina/Pablo.
     const statuses = value?.statuses;
     if (Array.isArray(statuses) && statuses.length > 0) {
+      const ownerNumber = process.env.OWNER_WHATSAPP_NUMBER;
       for (const s of statuses) {
         const info = `wamid=${s.id} to=${s.recipient_id} status=${s.status}`;
         if (s.status === "failed") {
@@ -75,9 +76,25 @@ export async function POST(req: NextRequest) {
                 .join("; ")
             : "sin detalle";
           console.error(`WhatsApp delivery FAILED: ${info} errors=${errs}`);
-          await notifyOwner(
-            `⚠️ Un mensaje de WhatsApp no se pudo entregar a ${s.recipient_id}. Motivo: ${errs}`
-          );
+          // OJO: si el destinatario que falló es el propio dueño (Romina/Pablo,
+          // OWNER_WHATSAPP_NUMBER), NO llamar a notifyOwner acá — notifyOwner le
+          // manda un mensaje de TEXTO libre (no plantilla) a ese mismo número, y
+          // los mensajes de texto libre solo se pueden mandar dentro de la
+          // ventana de 24hs desde el último mensaje del destinatario (error
+          // 131047 si no). Si esa notificación también falla, generaría OTRO
+          // evento de status "failed" para el mismo número, que dispararía este
+          // mismo código de nuevo — un loop infinito de reintentos (esto pasó en
+          // producción el 16/09/2026: decenas de "failed" seguidos). Para ese
+          // caso, solo se loguea, nunca se re-notifica.
+          if (s.recipient_id === ownerNumber) {
+            console.error(
+              `No se pudo avisarle al dueño por WhatsApp (${s.recipient_id}) — probablemente fuera de la ventana de 24hs. No se reintenta para evitar un loop.`
+            );
+          } else {
+            await notifyOwner(
+              `⚠️ Un mensaje de WhatsApp no se pudo entregar a ${s.recipient_id}. Motivo: ${errs}`
+            );
+          }
         } else {
           console.log(`WhatsApp status update: ${info}`);
         }
