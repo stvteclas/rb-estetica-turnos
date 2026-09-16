@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { handleIncomingMessage, markHumanTakeover } from "@/lib/bot/flow";
+import { notifyOwner } from "@/lib/whatsapp";
 
 // Número del bot de atención de la agencia (bot-atencion-agencia) — nunca es
 // una clienta real. Se usa para que este bot no le conteste si el número de
@@ -54,10 +55,40 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
+    // Eventos de "status" (sent/delivered/read/failed) de un mensaje que MANDAMOS
+    // nosotros (recordatorios, confirmaciones, etc.) — hasta ahora se ignoraban
+    // por completo. Un 200 al mandar el mensaje (ver whatsapp.ts, callGraph) solo
+    // confirma que Meta lo ACEPTÓ para enviar, no que le llegó al teléfono — el
+    // resultado real (entregado o fallido, con motivo) llega después, acá, de
+    // forma asincrónica. Sin loguear esto no hay forma de distinguir "se mandó
+    // pero no llegó" de "se mandó y llegó" mirando solo los logs de la request
+    // original (mismo problema ya visto en el bot de la agencia). Ahora se
+    // loguean todos, y si el status es "failed" se le avisa a Romina/Pablo.
+    const statuses = value?.statuses;
+    if (Array.isArray(statuses) && statuses.length > 0) {
+      for (const s of statuses) {
+        const info = `wamid=${s.id} to=${s.recipient_id} status=${s.status}`;
+        if (s.status === "failed") {
+          const errs = Array.isArray(s.errors)
+            ? s.errors
+                .map((e: any) => `${e.code} ${e.title}${e.error_data?.details ? " - " + e.error_data.details : ""}`)
+                .join("; ")
+            : "sin detalle";
+          console.error(`WhatsApp delivery FAILED: ${info} errors=${errs}`);
+          await notifyOwner(
+            `⚠️ Un mensaje de WhatsApp no se pudo entregar a ${s.recipient_id}. Motivo: ${errs}`
+          );
+        } else {
+          console.log(`WhatsApp status update: ${info}`);
+        }
+      }
+      return NextResponse.json({ ok: true });
+    }
+
     const message = value?.messages?.[0];
 
     if (!message) {
-      // Puede ser un evento de "status" (entregado/leído) en vez de un mensaje nuevo — se ignora.
+      // Ni mensaje entrante, ni eco, ni status reconocido — se ignora.
       return NextResponse.json({ ok: true });
     }
 
