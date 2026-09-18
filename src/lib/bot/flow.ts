@@ -33,6 +33,15 @@ const MAX_LIST_ROWS = 10; // límite de WhatsApp para mensajes de lista
 // la conversación).
 export const HUMAN_TAKEOVER_HOURS = 12;
 
+// Ventana de gracia para no confundir el eco de un mensaje que mandó el
+// PROPIO bot (modo coexistencia, smb_message_echoes) con una respuesta
+// manual real de Romina. Si el bot le mandó algo a este teléfono hace menos
+// de esto, el eco que llega justo después se descarta en vez de pausar el
+// bot. Bug real visto el 03/09/2026 (ver turnos-app-fixes-pendientes.md
+// punto 14): sin este filtro el bot se auto-silenciaba 12hs con la primera
+// clienta que le escribía, sin que nadie le hubiera contestado a mano.
+const BOT_ECHO_GRACE_SECONDS = 20;
+
 interface IncomingMessage {
   from: string; // número normalizado internacional que manda WhatsApp (ej. "5493543...")
   text?: string;
@@ -69,11 +78,31 @@ async function resetConversation(phone: string) {
  * la conversación como "tomada por un humano" para que el bot se calle. */
 export async function markHumanTakeover(rawPhone: string) {
   const phone = normalizePhone(rawPhone);
+
+  const existing = await prisma.botConversation.findUnique({ where: { phone } });
+  if (existing?.lastBotSentAt) {
+    const secondsSinceBotSent = (Date.now() - existing.lastBotSentAt.getTime()) / 1000;
+    if (secondsSinceBotSent < BOT_ECHO_GRACE_SECONDS) {
+      // Es (con altísima probabilidad) el eco del mensaje que el bot le
+      // acaba de mandar a esta clienta, no a Romina contestando a mano.
+      // No pausamos el bot por esto.
+      return;
+    }
+  }
+
   await prisma.botConversation.upsert({
     where: { phone },
     update: { humanTakeoverAt: new Date() },
     create: { phone, step: "inicio", humanTakeoverAt: new Date() },
   });
+}
+
+/** Números que se cargan desde /admin/bot para que el bot los ignore por
+ * completo — nunca les contesta nada. */
+export async function isIgnoredNumber(rawPhone: string): Promise<boolean> {
+  const phone = normalizePhone(rawPhone);
+  const found = await prisma.ignoredNumber.findUnique({ where: { phone } });
+  return !!found;
 }
 
 function isUnderHumanTakeover(humanTakeoverAt: Date | null): boolean {
@@ -312,11 +341,12 @@ export async function handleIncomingMessage(msg: IncomingMessage) {
   // markHumanTakeover / smb_message_echoes en el webhook), el bot no
   // contesta absolutamente nada en esta conversación mientras dure la
   // pausa — ni siquiera "cancelar" reactiva nada, para no pisarle la charla.
-  // DESACTIVADO TEMPORALMENTE (03/09/2026): se sospecha que este chequeo se
-  // activaba solo (sin que Romina escribiera a mano) y dejaba a la clienta
-  // sin respuesta del bot por 12hs. Ver claude/turnos-app-fixes-pendientes.md
-  // punto 13 para el diagnostico completo antes de reactivar.
-  if (false && isUnderHumanTakeover(conversation.humanTakeoverAt)) {
+  // Reactivado (18/09/2026) con el filtro BOT_ECHO_GRACE_SECONDS de arriba:
+  // el problema real (ver turnos-app-fixes-pendientes.md punto 14) era que
+  // el eco del propio mensaje del bot podía marcar humanTakeoverAt por
+  // error. markHumanTakeover ahora descarta ese caso, así que este chequeo
+  // puede quedar activo.
+  if (isUnderHumanTakeover(conversation.humanTakeoverAt)) {
     return;
   }
 

@@ -638,3 +638,32 @@ export async function deleteClient(id: string) {
   revalidatePath("/admin");
   redirect("/admin/clientas");
 }
+
+// ---------- Números ignorados por el bot ----------
+// Pedido de Romina (18/09/2026, mismo patrón que El Club): ella carga acá
+// números de teléfono que, si le escriben al WhatsApp, el bot ignora por
+// completo (no contesta nada). Ver isIgnoredNumber en src/lib/bot/flow.ts,
+// chequeado al principio del webhook.
+
+export async function createIgnoredNumber(formData: FormData) {
+  requireAdmin();
+  const phone = normalizePhone(String(formData.get("phone") || ""));
+  const note = String(formData.get("note") || "").trim() || null;
+  if (!phone) {
+    redirect("/admin/bot?error=datos");
+  }
+  await prisma.ignoredNumber.upsert({
+    where: { phone },
+    update: { note },
+    create: { phone, note },
+  });
+  revalidatePath("/admin/bot");
+  redirect("/admin/bot?ok=1");
+}
+
+export async function deleteIgnoredNumber(id: string) {
+  requireAdmin();
+  await prisma.ignoredNumber.delete({ where: { id } });
+  revalidatePath("/admin/bot");
+  redirect("/admin/bot");
+}

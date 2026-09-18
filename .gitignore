@@ -21,3 +21,6 @@ data/tuturno-historial.json
 
 # Artefacto de incremental build de TypeScript (generado al correr tsc).
 *.tsbuildinfo
+
+.vercel
+.env*

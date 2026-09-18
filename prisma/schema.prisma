@@ -242,6 +242,27 @@ model BotConversation {
   // por el webhook de "smb_message_echoes"; mientras esté reciente (ver
   // HUMAN_TAKEOVER_HOURS en src/lib/bot/flow.ts), el bot no contesta nada.
   humanTakeoverAt DateTime?
+  // Última vez que EL BOT (no un humano) le mandó un mensaje a este teléfono.
+  // Sirve para filtrar el eco que Meta manda de los propios mensajes del bot
+  // en modo coexistencia (smb_message_echoes) y no confundirlo con una
+  // respuesta manual real de Romina — ver BOT_ECHO_GRACE_SECONDS en
+  // src/lib/bot/flow.ts. Bug real detectado el 03/09/2026 (ver
+  // turnos/turnos-app-fixes-pendientes.md punto 14): sin este filtro, el bot
+  // podía auto-marcarse humanTakeoverAt con el eco de su propio primer
+  // mensaje y quedarse mudo 12hs sin que nadie le hubiera contestado a mano.
+  lastBotSentAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// Pedido de Romina (vía Cecilia/El Club, mismo patrón, 18/09/2026): números
+// de teléfono que se cargan desde /admin/bot para que el bot los ignore por
+// completo — si le escriben desde alguno de estos números, el bot no
+// contesta nada. Se chequea al principio del webhook, antes de tocar
+// BotConversation.
+model IgnoredNumber {
+  id        String   @id @default(cuid())
+  phone     String   @unique // normalizado, igual formato que Client.phone / BotConversation.phone
+  note      String? // opcional: para qué se anotó ese número
+  createdAt DateTime @default(now())
 }

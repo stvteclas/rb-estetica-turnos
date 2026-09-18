@@ -7,7 +7,25 @@
 // alta en Meta Business Manager — eso lo tiene que hacer Romina/Pablo, no se
 // puede armar desde acá.
 
+import { prisma } from "@/lib/prisma";
+import { normalizePhone } from "@/lib/phone";
+
 const GRAPH_VERSION = "v20.0";
+
+// Registra que el bot le acaba de mandar un mensaje a este teléfono. Se usa
+// en flow.ts (markHumanTakeover) para no confundir el eco que Meta manda de
+// un mensaje del propio bot (modo coexistencia, smb_message_echoes) con una
+// respuesta manual real de Romina — bug real visto el 03/09/2026 (ver
+// comentario en el modelo BotConversation, schema.prisma). Best-effort: si
+// falla, nunca corta el envío del mensaje real.
+async function recordBotOutgoing(to: string) {
+  try {
+    const phone = normalizePhone(to);
+    await prisma.botConversation.updateMany({ where: { phone }, data: { lastBotSentAt: new Date() } });
+  } catch (e) {
+    console.error("No se pudo registrar lastBotSentAt:", e);
+  }
+}
 
 function apiUrl(path: string): string {
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
@@ -31,12 +49,14 @@ async function callGraph(path: string, body: unknown) {
 }
 
 export async function sendWhatsAppText(to: string, body: string) {
-  return callGraph("/messages", {
+  const res = await callGraph("/messages", {
     messaging_product: "whatsapp",
     to,
     type: "text",
     text: { body, preview_url: false },
   });
+  await recordBotOutgoing(to);
+  return res;
 }
 
 // Aviso interno a Romina (OWNER_WHATSAPP_NUMBER) — nunca rompe el flujo de la
@@ -67,7 +87,7 @@ export async function sendWhatsAppList(params: {
   sectionTitle: string;
   rows: WhatsAppListRow[];
 }) {
-  return callGraph("/messages", {
+  const res = await callGraph("/messages", {
     messaging_product: "whatsapp",
     to: params.to,
     type: "interactive",
@@ -80,6 +100,8 @@ export async function sendWhatsAppList(params: {
       },
     },
   });
+  await recordBotOutgoing(params.to);
+  return res;
 }
 
 export interface WhatsAppButton {
@@ -89,7 +111,7 @@ export interface WhatsAppButton {
 
 // Mensaje con hasta 3 botones rápidos (ej. "Sí" / "Elegir otro horario").
 export async function sendWhatsAppButtons(to: string, bodyText: string, buttons: WhatsAppButton[]) {
-  return callGraph("/messages", {
+  const res = await callGraph("/messages", {
     messaging_product: "whatsapp",
     to,
     type: "interactive",
@@ -101,6 +123,8 @@ export async function sendWhatsAppButtons(to: string, bodyText: string, buttons:
       },
     },
   });
+  await recordBotOutgoing(to);
+  return res;
 }
 
 // Mensaje de plantilla (template) pre-aprobada por Meta — necesario para mandar
@@ -128,7 +152,7 @@ export async function sendWhatsAppTemplate(params: {
   languageCode?: string;
   bodyParams?: string[];
 }) {
-  return callGraph("/messages", {
+  const res = await callGraph("/messages", {
     messaging_product: "whatsapp",
     to: params.to,
     type: "template",
@@ -148,6 +172,8 @@ export async function sendWhatsAppTemplate(params: {
         : undefined,
     },
   });
+  await recordBotOutgoing(params.to);
+  return res;
 }
 
 // Descarga un archivo multimedia que mandó la clienta (ej. foto del comprobante).

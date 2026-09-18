@@ -3,7 +3,7 @@
 // POST: acá llegan los mensajes entrantes de las clientas.
 
 import { NextRequest, NextResponse } from "next/server";
-import { handleIncomingMessage, markHumanTakeover } from "@/lib/bot/flow";
+import { handleIncomingMessage, markHumanTakeover, isIgnoredNumber } from "@/lib/bot/flow";
 
 // Número del bot de atención de la agencia (bot-atencion-agencia) — nunca es
 // una clienta real. Se usa para que este bot no le conteste si el número de
@@ -99,6 +99,14 @@ export async function POST(req: NextRequest) {
     if (esMensajeDelBotDeLaAgencia(from)) {
       // Nunca contestarle al bot de la agencia — ver comentario arriba.
       console.warn(`Mensaje ignorado (viene del bot de la agencia, no de una clienta real): ${from}`);
+      return NextResponse.json({ ok: true });
+    }
+
+    // Números que Romina carga a mano en /admin/bot para que el bot los
+    // ignore por completo (18/09/2026). No se guarda nada de la
+    // conversación, no se manda ninguna respuesta.
+    if (await isIgnoredNumber(from)) {
+      console.warn(`Mensaje ignorado (número en la lista de ignorados): ${from}`);
       return NextResponse.json({ ok: true });
     }
 
