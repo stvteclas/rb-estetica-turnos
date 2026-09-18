@@ -68,6 +68,14 @@ export default async function ServiceAgendaPage({ params }: { params: { id: stri
         </div>
       )}
 
+      {service.requiresDateConfirmation && service.blocksOtherServices && (
+        <div className="card pad" style={{ marginBottom: 20, background: "var(--surface-2)" }}>
+          Este servicio tiene activado <strong>"cerrar el resto de los servicios"</strong>: cada fecha que tildes acá
+          abajo va a cerrar automáticamente ese mismo día para todos los demás tratamientos (facial, corporal, cejas,
+          etc.), sin que haga falta cerrarlos uno por uno en Horarios.
+        </div>
+      )}
+
       {weekdayDefaults.size === 0 ? (
         <p className="muted">
           Este servicio todavía no tiene ningún día de la semana configurado (Servicios → Editar → "Días y horario en

@@ -46,12 +46,24 @@ export default async function TurnosPage({ searchParams }: { searchParams: { dat
   ]);
   const openDateByService = new Map(openDatesToday.map((o) => [o.serviceId, o]));
 
+  // Pedido de Romina (18/09/2026, punto 28): si algún servicio con
+  // blocksOtherServices=true (ej. Depilación) tiene una fila en
+  // openDatesToday, el resto de los servicios queda cerrado este día — sin
+  // que haga falta ir cerrando cada uno a mano (ver isDateBlockedByExclusiveService
+  // en src/lib/actions/public.ts, misma regla que usan la reserva web y el bot).
+  const exclusiveServiceIdsOpenToday = new Set(
+    openDatesToday
+      .filter((o) => services.find((s) => s.id === o.serviceId)?.blocksOtherServices)
+      .map((o) => o.serviceId)
+  );
+
   // Disponibilidad del día, servicio por servicio (cada uno puede tener su
   // propio horario), descontando turnos ya tomados y pausas configuradas.
   const busyToday = [...toBusyIntervals(appointments), ...breaksForDate(breaks, selectedDate)];
   const availabilityByService = services
     .map((s) => {
-      const window = getWindowForDate(s, selectedDate, override, s.dayHours, openDateByService.get(s.id) || null);
+      const blockedByExclusiveService = exclusiveServiceIdsOpenToday.size > 0 && !exclusiveServiceIdsOpenToday.has(s.id);
+      const window = getWindowForDate(s, selectedDate, override, s.dayHours, openDateByService.get(s.id) || null, blockedByExclusiveService);
       if (!window) return { service: s, slots: [] as number[], open: false };
       const slots = getAvailableSlots({ window, duration: s.duration, busy: busyToday, date: selectedDate });
       return { service: s, slots, open: true };

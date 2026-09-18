@@ -41,6 +41,7 @@ export default async function ServiciosPage() {
               <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>
                 {scheduleSummary(s.dayHours)}
                 {s.requiresDateConfirmation && " · requiere confirmar fecha por fecha (Agenda)"}
+                {s.requiresDateConfirmation && s.blocksOtherServices && " · cierra el resto de los servicios el día que se confirma"}
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
@@ -74,6 +75,7 @@ export default async function ServiciosPage() {
               prepInstructions: s.prepInstructions,
               dayHours: s.dayHours.map((d) => ({ dayOfWeek: d.dayOfWeek, startMin: d.startMin, endMin: d.endMin })),
               requiresDateConfirmation: s.requiresDateConfirmation,
+              blocksOtherServices: s.blocksOtherServices,
             }}
           />
         </div>

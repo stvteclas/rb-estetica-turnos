@@ -9,18 +9,36 @@ import { sendWhatsAppTemplate, notifyOwner } from "@/lib/whatsapp";
 import { toWhatsAppNumber } from "@/lib/phone";
 import { revalidatePath } from "next/cache";
 
+/** Pedido de Romina (18/09/2026): si otro servicio con
+ * blocksOtherServices=true (ej. Depilación) tiene esta fecha confirmada en
+ * su Agenda (ServiceOpenDate), ningún otro servicio puede reservarse ese
+ * día — así Romina no tiene que ir cerrando servicio por servicio a mano
+ * cada vez que abre un día de Depilación. No cuenta al propio `excludeServiceId`:
+ * el servicio exclusivo se sigue rigiendo por su propia Agenda como siempre. */
+async function isDateBlockedByExclusiveService(date: Date, excludeServiceId: string): Promise<boolean> {
+  const blocking = await prisma.serviceOpenDate.findFirst({
+    where: {
+      date,
+      serviceId: { not: excludeServiceId },
+      service: { blocksOtherServices: true },
+    },
+  });
+  return blocking != null;
+}
+
 export async function getAvailability(serviceId: string, dateKey: string) {
   const service = await prisma.service.findUnique({ where: { id: serviceId }, include: { dayHours: true } });
   if (!service || !service.active) return { ok: false as const, error: "Servicio no disponible." };
 
   const date = keyToDate(dateKey);
-  const [override, openDate] = await Promise.all([
+  const [override, openDate, blockedByExclusiveService] = await Promise.all([
     prisma.dateOverride.findUnique({ where: { date } }),
     service.requiresDateConfirmation
       ? prisma.serviceOpenDate.findUnique({ where: { serviceId_date: { serviceId, date } } })
       : Promise.resolve(null),
+    isDateBlockedByExclusiveService(date, serviceId),
   ]);
-  const window = getWindowForDate(service, date, override, service.dayHours, openDate);
+  const window = getWindowForDate(service, date, override, service.dayHours, openDate, blockedByExclusiveService);
   if (!window) return { ok: true as const, slots: [] as number[] };
 
   const [appointments, breaks] = await Promise.all([
@@ -85,13 +103,14 @@ export async function createBooking(input: CreateBookingInput) {
   if (!service || !service.active) return { ok: false as const, error: "Servicio no disponible." };
 
   const date = keyToDate(input.dateKey);
-  const [override, openDate] = await Promise.all([
+  const [override, openDate, blockedByExclusiveService] = await Promise.all([
     prisma.dateOverride.findUnique({ where: { date } }),
     service.requiresDateConfirmation
       ? prisma.serviceOpenDate.findUnique({ where: { serviceId_date: { serviceId: service.id, date } } })
       : Promise.resolve(null),
+    isDateBlockedByExclusiveService(date, service.id),
   ]);
-  const window = getWindowForDate(service, date, override, service.dayHours, openDate);
+  const window = getWindowForDate(service, date, override, service.dayHours, openDate, blockedByExclusiveService);
   if (!window) return { ok: false as const, error: "Ese día no hay atención para este servicio." };
 
   const endMin = input.startMin + service.duration;

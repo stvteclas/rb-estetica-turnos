@@ -26,6 +26,7 @@ export interface ServiceFormValues {
   prepInstructions?: string | null;
   dayHours?: { dayOfWeek: number; startMin: number; endMin: number }[];
   requiresDateConfirmation?: boolean;
+  blocksOtherServices?: boolean;
 }
 
 export default function ServiceForm({
@@ -127,6 +128,13 @@ export default function ServiceForm({
           <input type="checkbox" name="requiresDateConfirmation" defaultChecked={d.requiresDateConfirmation === true} />
           Este servicio no atiende todas las semanas — confirmar fecha por fecha en la Agenda
         </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 400, marginTop: 8 }}>
+          <input type="checkbox" name="blocksOtherServices" defaultChecked={d.blocksOtherServices === true} />
+          Al confirmar una fecha acá, cerrar automáticamente el resto de los servicios ese día
+        </label>
+        <div className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+          Ej. Depilación: el día que confirmes en su Agenda queda cerrado para los demás tratamientos, sin tener que ir servicio por servicio sacando la disponibilidad. Solo tiene efecto si además está tildado "confirmar fecha por fecha" de arriba.
+        </div>
       </div>
 
       <div className="field" style={{ gridColumn: "1 / -1", borderTop: "1px solid var(--border)", paddingTop: 12, marginTop: 4 }}>

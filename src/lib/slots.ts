@@ -11,26 +11,33 @@ export interface Interval {
  * 1. Excepción general del negocio (DateOverride: cierra o abre para TODOS
  *    los servicios) — un cierre siempre gana, aunque el servicio tenga
  *    agenda propia.
- * 2. Si el servicio tiene requiresDateConfirmation=true (ej. Depilación, que
+ * 2. Día exclusivo de OTRO servicio (blockedByExclusiveService=true, ver
+ *    isDateBlockedByExclusiveService en src/lib/actions/public.ts): si otro
+ *    servicio con blocksOtherServices=true (ej. Depilación) tiene esa fecha
+ *    confirmada en su Agenda, este servicio queda cerrado ese día — pedido
+ *    de Romina (18/09/2026) para no tener que cerrar cada servicio a mano.
+ * 3. Si el servicio tiene requiresDateConfirmation=true (ej. Depilación, que
  *    no atiende todos los viernes/sábados): esa fecha puntual tiene que estar
  *    confirmada en su Agenda (ServiceOpenDate) — si no está, no está
  *    disponible, aunque el día de la semana esté en su horario habitual.
- * 3. Horario personalizado por día (ServiceDayHours) si el servicio tiene
+ * 4. Horario personalizado por día (ServiceDayHours) si el servicio tiene
  *    alguno configurado.
- * 4. Si no tiene nada de lo anterior, la regla vieja de un solo horario para
+ * 5. Si no tiene nada de lo anterior, la regla vieja de un solo horario para
  *    varios días (availableDays/startMin/endMin), por compatibilidad. */
 export function getWindowForDate(
   service: Pick<Service, "availableDays" | "startMin" | "endMin" | "requiresDateConfirmation">,
   date: Date,
   override: DateOverride | null,
   dayHours: Pick<ServiceDayHours, "dayOfWeek" | "startMin" | "endMin">[] = [],
-  openDate: Pick<ServiceOpenDate, "startMin" | "endMin"> | null = null
+  openDate: Pick<ServiceOpenDate, "startMin" | "endMin"> | null = null,
+  blockedByExclusiveService: boolean = false
 ): Interval | null {
-  if (override) {
-    if (override.type === "closed") return null;
-    if (override.type === "open" && override.startMin != null && override.endMin != null) {
-      return { startMin: override.startMin, endMin: override.endMin };
-    }
+  if (override && override.type === "closed") return null;
+
+  if (blockedByExclusiveService) return null;
+
+  if (override && override.type === "open" && override.startMin != null && override.endMin != null) {
+    return { startMin: override.startMin, endMin: override.endMin };
   }
 
   if (service.requiresDateConfirmation) {

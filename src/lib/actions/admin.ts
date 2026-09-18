@@ -125,6 +125,7 @@ export async function createService(formData: FormData) {
       depositAmount: formData.get("depositAmount") ? Number(formData.get("depositAmount")) : null,
       prepInstructions: String(formData.get("prepInstructions") || "").trim() || null,
       requiresDateConfirmation: formData.get("requiresDateConfirmation") === "on",
+      blocksOtherServices: formData.get("blocksOtherServices") === "on",
       dayHours: { create: dayHours },
     },
   });
@@ -154,6 +155,7 @@ export async function updateService(id: string, formData: FormData) {
       depositAmount: formData.get("depositAmount") ? Number(formData.get("depositAmount")) : null,
       prepInstructions: String(formData.get("prepInstructions") || "").trim() || null,
       requiresDateConfirmation: formData.get("requiresDateConfirmation") === "on",
+      blocksOtherServices: formData.get("blocksOtherServices") === "on",
       dayHours: { deleteMany: {}, create: dayHours },
     },
   });

@@ -57,6 +57,16 @@ model Service {
   // trabaja viernes y sábados, pero no todos, así que cada viernes/sábado
   // tiene que estar confirmado en ServiceOpenDate para poder reservarse).
   requiresDateConfirmation Boolean @default(false)
+  // Pedido de Romina (18/09/2026): para un servicio como Depilación, el día
+  // que Romina confirma una fecha en su Agenda (ServiceOpenDate), ese mismo
+  // día tiene que cerrarse automáticamente para TODOS los demás servicios
+  // (sin que ella tenga que ir servicio por servicio sacando la
+  // disponibilidad a mano). Solo tiene efecto en servicios con
+  // requiresDateConfirmation=true, porque es al confirmar una fecha en la
+  // Agenda que se dispara el cierre del resto — ver
+  // isDateBlockedByExclusiveService() en src/lib/actions/public.ts y
+  // getWindowForDate() en src/lib/slots.ts.
+  blocksOtherServices Boolean @default(false)
   openDates     ServiceOpenDate[]
 }
 
