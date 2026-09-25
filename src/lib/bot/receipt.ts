@@ -22,6 +22,7 @@ export async function verifyDepositReceipt(params: {
   expectedAmount: number;
   expectedAlias: string;
   expectedAccountHolder?: string;
+  expectedCuit?: string;
 }): Promise<ReceiptCheckResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -41,15 +42,22 @@ export async function verifyDepositReceipt(params: {
     ? `\n- Nombre del titular de la cuenta de destino esperado: "${params.expectedAccountHolder}"`
     : "";
 
+  const cuitLine = params.expectedCuit
+    ? `\n- CUIT/CUIL del titular de la cuenta de destino esperado: "${params.expectedCuit}"`
+    : "";
+
   const prompt = `Este archivo es un comprobante de transferencia bancaria o pago (Mercado Pago, home banking, etc.) que una clienta mandó para pagar una seña.
 
 Datos esperados:
 - Monto esperado: $${params.expectedAmount} (pesos argentinos)
-- Alias de destino esperado: "${params.expectedAlias}"${holderLine}
+- Alias de destino esperado: "${params.expectedAlias}"${holderLine}${cuitLine}
 
 El comprobante puede mostrar el destino de distintas formas: a veces aparece el alias tal cual, a veces solo aparece el CBU y el nombre del titular de la cuenta (sin el alias). Dalo por válido si CUALQUIERA de estas coincide razonablemente:
 - El alias mostrado coincide con "${params.expectedAlias}".
+- El CUIT/CUIL de destino mostrado coincide con el esperado (compará solo los dígitos, ignorando guiones). Si coincide, alcanza por sí solo.
 - El nombre del titular de la cuenta de destino coincide razonablemente con "${params.expectedAccountHolder || params.expectedAlias}" (aunque el comprobante no muestre el alias en sí — el nombre del titular alcanza).
+
+Sobre el nombre del titular: sé tolerante. Mercado Pago y los bancos suelen mostrar solo primer nombre y apellido, o el nombre completo, o el orden APELLIDO NOMBRE, con o sin acentos y en mayúsculas o minúsculas. Considerá que coincide si el nombre y el apellido coinciden, aunque falte el segundo nombre u otros nombres intermedios (por ejemplo "Romina Balquinta" coincide con "Romina Yael Balquinta"). NO lo tomes como distinto solo porque falte o sobre un segundo nombre. Sí es un desacuerdo real si cambia el apellido o el primer nombre.
 
 Fijate también si el monto transferido es igual o mayor a $${params.expectedAmount}, y si la imagen es realmente un comprobante de pago/transferencia (no otra cosa).
 

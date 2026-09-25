@@ -17,5 +17,8 @@ export const DEPOSIT = {
   // a veces muestra el CBU y el nombre en vez del alias, así que el bot
   // también acepta esto como comprobante válido de que es la cuenta correcta.
   accountHolder: "Romina Yael Balquinta",
+  // CUIT/CUIL del titular: identificador estable que el comprobante de Mercado Pago
+  // siempre muestra; evita rechazos por diferencias en el nombre (ej. sin segundo nombre).
+  cuit: "27-31921661-3",
   amount: 5000,
 };

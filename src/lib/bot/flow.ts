@@ -286,6 +286,7 @@ async function processReceiptForAppointment(phone: string, msg: IncomingMessage,
     expectedAmount,
     expectedAlias: DEPOSIT.alias,
     expectedAccountHolder: DEPOSIT.accountHolder,
+    expectedCuit: DEPOSIT.cuit,
   });
 
   const serviceName = appointment.service.name;
